@@ -29,11 +29,12 @@ class DeTokenizationManager:
                 self.tokenizer = get_tokenizer("huggyllama/llama-7b", tokenizor_mode) 
 
         self.req_id_to_out = {}
-        
+            
     async def handle_loop(self):
         while True:
             try:
                 recv_obj:Union(BatchTokenIdOut, ReqDetokenizationState, AbortReq, BatchAbortReq) = await self.recv_from_router.recv_pyobj() 
+                # print("Detokenizer received request")
                 assert isinstance(recv_obj, (BatchTokenIdOut, ReqDetokenizationState, AbortReq, BatchAbortReq)), f"type is not right {type(recv_obj)}"
                 if isinstance(recv_obj, ReqDetokenizationState):
                     self.req_id_to_out[recv_obj.request_id] = recv_obj

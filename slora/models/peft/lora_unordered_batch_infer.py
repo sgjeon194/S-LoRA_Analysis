@@ -39,7 +39,6 @@ class LoraUnorderedBatchInfer:
         
         self.kv_embed_dim = base_model.tp_k_head_num_ * base_model.head_dim_
 
-
     @torch.no_grad()
     def forward(
             self,
@@ -74,6 +73,7 @@ class LoraUnorderedBatchInfer:
         else:
             for _ in range(3):
                 self.delta.append(torch.zeros((len(b_seq_len), self.max_lora_dim), dtype=torch.float16, device="cuda"))
+
             return self._decode(batch_size, total_token_num, max_len_in_batch,
                                 input_ids,
                                 b_loc, b_start_loc, b_seq_len,
@@ -83,7 +83,6 @@ class LoraUnorderedBatchInfer:
     def _prefill(self, batch_size, total_token_num, max_len_in_batch,
                  input_ids,
                  b_loc, b_start_loc, b_seq_len, no_lora_compute=False):
-
         infer_state = self.base_model.infer_state_class()
         infer_state.is_prefill = True
         infer_state.batch_size = batch_size
@@ -113,8 +112,10 @@ class LoraUnorderedBatchInfer:
                 (infer_state.total_token_num, self.base_model.tp_k_head_num_, self.base_model.head_dim_),
                 dtype=torch.float16, device="cuda")
         init_bloc(b_loc, b_seq_len, max_len_in_batch, infer_state.prefill_mem_index)
-        
+        print("\n<<Prefill>>")
+        print(f"\tbatch_size {batch_size}")
         predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
+        print("<Prefill end> -------------")
         return predict_logics
 
 
@@ -155,7 +156,10 @@ class LoraUnorderedBatchInfer:
 
         infer_state.init_some_extra_state(self.base_model, batch_size, total_token_num, max_len_in_batch,
                                           input_ids, b_loc, b_start_loc, b_seq_len, False)
+        print(f"\n<<Decode>>")
+        print(f"\tbatch_size {batch_size}")
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
+        print("<Decode end> -------------")
         return predict_logics
 
 
@@ -176,6 +180,7 @@ class LoraUnorderedBatchInfer:
         cuda_input_ids = input_ids
         input_embs = self.base_model.pre_infer.token_forward(
                 cuda_input_ids, infer_state, self.base_model.pre_post_weight)
+        #print(f"embs : {input_embs.size()}")
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_token_forward(i, input_embs, infer_state, no_lora_compute, no_lora_copy)
         predict_logics = self.base_model.post_infer.token_forward(
@@ -185,6 +190,7 @@ class LoraUnorderedBatchInfer:
 
     @final
     def _lora_context_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False):
+        #print(f"\t Layer {layer_id}")
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
@@ -206,11 +212,13 @@ class LoraUnorderedBatchInfer:
 
     # @mark_cost_time("trans context flash forward time cost")  # dont to remove this, will make performence down, did not know why
     def _lora_context_attention(self, layer_id, input_embs, infer_state, no_lora_compute=False):
+        #print("\tAttention === ")
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
+        
         # layer normalization
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
-        # fetch k, v
+        # fetch k, v 현재로는 그냥 infer_state.prefill_key_buffer, infer_state.prefill_value_buffer을 반환하는걸로 보임 (decode시 다름)
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
         # gen new q, k, v (batch different adapters)
         q = self._lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute)

@@ -84,7 +84,8 @@ class HttpServerManager:
                     del self.req_id_to_out_inf[request_id]
                 except:
                     pass
-                break
+                break            
+        
         return
 
     async def abort(self, request_id):
@@ -111,6 +112,7 @@ class HttpServerManager:
                                 finished,
                                 event,
                             )
+                            #print(f"{req_id} : {text}")
                             event.set()
                         else:
                             del self.req_id_to_out_inf[req_id]

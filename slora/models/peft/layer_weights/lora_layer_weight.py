@@ -96,6 +96,7 @@ class LoraLayerWeight:
  
 
     def load_hf_weights(self, weights, swap=False, dummy=False):
+        #print(f"\tLayer Number {self.layer_num_} / is dumy? {dummy} / is swap? {swap and not self.no_lora_swap}")
         if dummy:
             self.load_dummy_weights(swap)
             return
@@ -103,6 +104,8 @@ class LoraLayerWeight:
         if swap and not self.no_lora_swap:
             self.load_hf_weights_cpu(weights)
             return
+        
+        #print("\tLoRA load on GPU")
 
         n_embed = self.network_config["hidden_size"]
         split_n_embed = n_embed // self.world_size_
@@ -116,44 +119,52 @@ class LoraLayerWeight:
             self.q_lora_A = weights[f"{prefix}.q_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.q_lora_A = self.q_lora_A.transpose(0, 1).contiguous().to(self.data_type_)
             self.q_lora_A = self.q_lora_A.cuda()
+            print(f"\t\tQ lora A : {self.q_lora_A.shape} is on cuda : {self.q_lora_A.is_cuda}")
 
         if f"{prefix}.q_proj.lora_B.weight" in weights:
             self.q_lora_B = weights[f"{prefix}.q_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.q_lora_B = self.q_lora_B.transpose(0, 1).contiguous().to(self.data_type_)
             self.q_lora_B = self.q_lora_B.cuda()
+            print(f"\t\tQ lora B : {self.q_lora_B.shape} is on cuda : {self.q_lora_B.is_cuda}")
 
         # k_proj A, B
         if f"{prefix}.k_proj.lora_A.weight" in weights:
             self.k_lora_A = weights[f"{prefix}.k_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.k_lora_A = self.k_lora_A.transpose(0, 1).contiguous().to(self.data_type_)
             self.k_lora_A = self.k_lora_A.cuda()
+            print(f"\t\tK lora A : {self.k_lora_A.shape} is on cuda : {self.k_lora_A.is_cuda}")
 
         if f"{prefix}.k_proj.lora_B.weight" in weights:
             self.k_lora_B = weights[f"{prefix}.k_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.k_lora_B = self.k_lora_B.transpose(0, 1).contiguous().to(self.data_type_)
             self.k_lora_B = self.k_lora_B.cuda()
+            print(f"\t\tK lora B : {self.k_lora_B.shape} is on cuda : {self.k_lora_B.is_cuda}")
 
         # v_proj A, B
         if f"{prefix}.v_proj.lora_A.weight" in weights:
             self.v_lora_A = weights[f"{prefix}.v_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.v_lora_A = self.v_lora_A.transpose(0, 1).contiguous().to(self.data_type_)
             self.v_lora_A = self.v_lora_A.cuda()
+            print(f"\t\tV lora A : {self.v_lora_A.shape} is on cuda : {self.v_lora_A.is_cuda}")
 
         if f"{prefix}.v_proj.lora_B.weight" in weights:
             self.v_lora_B = weights[f"{prefix}.v_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.v_lora_B = self.v_lora_B.transpose(0, 1).contiguous().to(self.data_type_)
             self.v_lora_B = self.v_lora_B.cuda()
+            print(f"\t\tV lora B : {self.v_lora_B.shape} is on cuda : {self.v_lora_B.is_cuda}")
 
         # o_proj A, B
         if f"{prefix}.o_proj.lora_A.weight" in weights:
             self.o_lora_A = weights[f"{prefix}.o_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.o_lora_A = self.o_lora_A.transpose(0, 1).contiguous().to(self.data_type_)
             self.o_lora_A = self.o_lora_A.cuda()
+            print(f"\t\tO lora A : {self.o_lora_A.shape} is on cuda : {self.o_lora_A.is_cuda}")
 
         if f"{prefix}.o_proj.lora_B.weight" in weights:
             self.o_lora_B = weights[f"{prefix}.o_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.o_lora_B = self.o_lora_B.transpose(0, 1).contiguous().to(self.data_type_)
             self.o_lora_B = self.o_lora_B.cuda()
+            print(f"\t\tO lora B : {self.o_lora_B.shape} is on cuda : {self.o_lora_B.is_cuda}")
 
         return
 
@@ -166,52 +177,64 @@ class LoraLayerWeight:
         prefix = prefix[:prefix.find("layers")] + f"layers.{self.layer_num_}.self_attn"
         tp_idx = (split_n_embed * self.tp_rank_, split_n_embed * (self.tp_rank_ + 1))
 
+        # print(f"\tLoad LoRA on CPU")
+        # print(f"\t{__name__}")
+
         # q_proj A, B
         if f"{prefix}.q_proj.lora_A.weight" in weights:
             self.q_lora_A_home = weights[f"{prefix}.q_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.q_lora_A_home = self.q_lora_A_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.q_lora_A = None
+            #print(f"\t\tQ lora A : {self.q_lora_A_home.shape} is on cuda : {self.q_lora_A_home.is_cuda}")
 
         if f"{prefix}.q_proj.lora_B.weight" in weights:
             self.q_lora_B_home = weights[f"{prefix}.q_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.q_lora_B_home = self.q_lora_B_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.q_lora_B = None
+            #print(f"\t\tQ lora B : {self.q_lora_B_home.shape} is on cuda : {self.q_lora_B_home.is_cuda}")
 
         # k_proj A, B
         if f"{prefix}.k_proj.lora_A.weight" in weights:
             self.k_lora_A_home = weights[f"{prefix}.k_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.k_lora_A_home = self.k_lora_A_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.k_lora_A = None
+            #print(f"\t\tK lora A : {self.k_lora_A_home.shape} is on cuda : {self.k_lora_A_home.is_cuda}")
 
         if f"{prefix}.k_proj.lora_B.weight" in weights:
             self.k_lora_B_home = weights[f"{prefix}.k_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.k_lora_B_home = self.k_lora_B_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.k_lora_B = None
+            #print(f"\t\tK lora B : {self.k_lora_B_home.shape} is on cuda : {self.k_lora_B_home.is_cuda}")
 
         # v_proj A, B
         if f"{prefix}.v_proj.lora_A.weight" in weights:
             self.v_lora_A_home = weights[f"{prefix}.v_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.v_lora_A_home = self.v_lora_A_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.v_lora_A = None
+            #print(f"\t\tQ lora A : {self.v_lora_A_home.shape} is on cuda : {self.v_lora_A_home.is_cuda}")
 
         if f"{prefix}.v_proj.lora_B.weight" in weights:
             self.v_lora_B_home = weights[f"{prefix}.v_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.v_lora_B_home = self.v_lora_B_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.v_lora_B = None
+            #print(f"\t\tV lora B : {self.v_lora_B_home.shape} is on cuda : {self.v_lora_B_home.is_cuda}")
 
         # o_proj A, B
         if f"{prefix}.o_proj.lora_A.weight" in weights:
             self.o_lora_A_home = weights[f"{prefix}.o_proj.lora_A.weight"][:, tp_idx[0]:tp_idx[1]]
             self.o_lora_A_home = self.o_lora_A_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.o_lora_A = None
+            #print(f"\t\tO lora A : {self.o_lora_A_home.shape} is on cuda : {self.o_lora_A_home.is_cuda}")
 
         if f"{prefix}.o_proj.lora_B.weight" in weights:
             self.o_lora_B_home = weights[f"{prefix}.o_proj.lora_B.weight"][tp_idx[0]:tp_idx[1], :]
             self.o_lora_B_home = self.o_lora_B_home.transpose(0, 1).contiguous().to(self.data_type_).pin_memory()
             self.o_lora_B = None
+            #print(f"\t\tO lora B : {self.o_lora_B_home.shape} is on cuda : {self.o_lora_B_home.is_cuda}")
         
         rank = self.lora_config["r"]
         num_head = self.network_config["num_attention_heads"]
+        #print(f"\tRank : {rank} / Head number : {num_head}")
         self.w_combined_home = torch.concat(
             [self.q_lora_A_home.T.reshape(rank, num_head, -1),
                 self.k_lora_A_home.T.reshape(rank, num_head, -1),
@@ -221,7 +244,10 @@ class LoraLayerWeight:
                 self.k_lora_B_home.T.reshape(rank, num_head, -1),
                 self.v_lora_B_home.T.reshape(rank, num_head, -1),
                 self.o_lora_B_home.T.reshape(rank, num_head, -1)]).pin_memory()
+        #print(f"\tcombining reshaped A : {self.q_lora_A_home.T.reshape(rank, num_head, -1).shape}")
+        #print(f"\tW Combined home : {self.w_combined_home.shape}")
         self.w_combined_home = self.w_combined_home.reshape(2, 4 * rank, num_head, -1)
+        #print(f"\tReshaped W Combined home : {self.w_combined_home.shape}")
         self.w_combined = None
 
         return
@@ -234,6 +260,7 @@ class LoraLayerWeight:
                     self.w_combined = self.w_combined_home.to("cuda", non_blocking=True)
                 else:
                     self.w_combined = self.w_combined_home.to("cuda", non_blocking=True)
+                #print(f"Wcombined : {self.w_combined.shape} use cuda : {self.w_combined.is_cuda}")
         else:
             if self.q_lora_A is None:
                 self.q_lora_A = self.q_lora_A_home.to("cuda", non_blocking=True)

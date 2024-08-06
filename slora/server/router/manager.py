@@ -95,6 +95,7 @@ class RouterManager:
 
 
     async def wait_to_model_ready(self):
+        print("WAIT TO MODEL READY")
         self.model_rpcs: List[ModelRpcClient] = []
         for rank_id in range(self.world_size):
             rpc_model = await start_model_process(port=self.model_rpc_ports[rank_id], world_size=self.world_size)
@@ -165,6 +166,7 @@ class RouterManager:
         while True:
             await self._step()
             counter_count += 1
+            #print(f"running batch {self.running_batch}")
             if self.running_batch is not None:
                 if counter_count % 50 == 0:
                     print("current batch size:", len(self.running_batch.reqs), "token used ratio:", self.running_batch.calcu_used_tokens() / self.input_params.max_total_token_num)
@@ -179,6 +181,7 @@ class RouterManager:
         事件处理循环
         """
         # 删除所有已经 finished 的 req
+        #print("in step") 이 함수는 서버가 켜져있는 동안 계속 호출되는 중
         if self.running_batch is None:
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
@@ -192,12 +195,14 @@ class RouterManager:
                     # load adapters
                     ret = []
                     for tp_rank in range(self.world_size):
+                        print(f"11111adapters : {str(new_batch.adapter_dirs)}")
                         ret.append(self.model_rpcs[tp_rank].load_adapters(new_batch.adapter_dirs))
                     await asyncio.gather(*ret)
 
                 
                 # merge adapter to base model
                 if self.input_params.scheduler == "peft":
+                    print("peft")
                     torch.cuda.synchronize()
                     ret = []
                     for tp_rank in range(self.world_size):
@@ -213,6 +218,7 @@ class RouterManager:
         if self.has_wait_tokens < self.max_wait_tokens:
             self.stats_tool.count_output_tokens(self.running_batch)
             # prefetch
+            #print(22222)
             if (not self.input_params.no_lora and
                 self.input_params.prefetch and (self.has_wait_tokens == self.max_wait_tokens // 2 or
                 self.has_wait_tokens == self.max_wait_tokens - 3) and self.input_params.scheduler != "peft"):
@@ -220,6 +226,7 @@ class RouterManager:
                 if next_batch is not None:
                     ret = []
                     for tp_rank in range(self.world_size):
+                        print(f"22222adapters : {str(next_batch.adapter_dirs)}")
                         ret.append(self.model_rpcs[tp_rank].load_adapters(
                             next_batch.adapter_dirs, prefetch=True))
                     await asyncio.gather(*ret)
@@ -229,16 +236,18 @@ class RouterManager:
             self.has_wait_tokens += 1
             return
         else:
+            print(33333)
             new_mini_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
                 self.req_queue.reset_abort_list()
             if new_mini_batch is not None:
+                print(f"new minibatch size {len(new_mini_batch.reqs)}")
                 self.stats_tool.count_prompt_tokens(new_mini_batch)
-
                 if not self.input_params.no_lora:
                     ret = []
                     for tp_rank in range(self.world_size):
+                        print(f"33333adapters : {str(new_mini_batch.adapter_dirs)}")
                         ret.append(self.model_rpcs[tp_rank].load_adapters(new_mini_batch.adapter_dirs))
                     await asyncio.gather(*ret)
 
@@ -248,6 +257,7 @@ class RouterManager:
                     self.running_batch.merge(new_mini_batch)
                 self.has_wait_tokens = 0
             else:
+                print(f"running batch")
                 self.stats_tool.count_output_tokens(self.running_batch)
                 await self._decode_batch(self.running_batch)
                 await self._filter_runing_batch()
@@ -277,6 +287,7 @@ class RouterManager:
         self.req_queue.update_counter(batch)
         rets = [self.model_rpcs[tp_rank].decode_batch(batch.batch_id) for tp_rank in range(self.world_size)]
         ans = await asyncio.gather(*rets)
+        #print(f"Ans : len = {len(ans)} value sample = {ans[0]}")
         if self.world_size != 1:
             req_to_out_token_id = obtain(ans[0])
         else:
@@ -357,6 +368,7 @@ class RouterManager:
     async def loop_for_netio_req(self):
         while True:
             recv_req = await self.recv_from_httpserver.recv_pyobj()
+            print("loop for net io request")
             if isinstance(recv_req, tuple) and len(recv_req) == 4:
                 adapter_dir, prompt_ids, sampling_params, request_id = recv_req
                 self.add_req(adapter_dir, prompt_ids, sampling_params, request_id)

@@ -55,7 +55,7 @@ class InferAdapter:
 
             w_combined = adapter.layers[i].w_combined
             self.mem_manager.key_buffer[i][loc] = w_combined[0]
-
+            #print(f"on cuda? {self.mem_manager.key_buffer[i][loc].is_cuda}")
             #self.mem_manager.key_buffer[i][loc[:r]] = w_combined[0].T.reshape(r, head_num, head_dim)
             #self.mem_manager.key_buffer[i][loc[r:r * 2]] = w_combined[1].T.reshape(r, head_num, head_dim)
             #self.mem_manager.key_buffer[i][loc[r * 2:r * 3]] = w_combined[2].T.reshape(r, head_num, head_dim)
@@ -116,6 +116,7 @@ class InferAdapter:
             new_adapters = []
             tot_size = 0
             # mark_start("load scan")
+            print(f"not prefetch {adapters}")
             for adapter in adapters:
                 if adapter is not None and adapter.lora_dir not in self.idx_map:
                     new_adapters.append(adapter)
@@ -134,7 +135,10 @@ class InferAdapter:
 
         cum_loc = 0
         cum_loc_list = []
+        print(f"adapters {[a.lora_dir for a in adapters]}")
+        print(f"new adapters {[a.lora_dir for a in new_adapters]}")
         for i, new_adapter in enumerate(new_adapters):
+            print(f"added adapter : {new_adapter.lora_dir}")
             cum_loc_list.append(cum_loc)
             self.idx_map[new_adapter.lora_dir] = len(self.adapter_dirs)
             self.adapter_dirs.append(new_adapter.lora_dir)

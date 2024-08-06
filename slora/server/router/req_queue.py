@@ -63,6 +63,9 @@ class ReqQueue:
         if current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
             return None
         
+        #print(__name__)
+        #print(f"Current batch size : {len(current_batch.reqs)}")
+        
         self._init_cache_list(current_batch, lora_ranks)
         can_run_list = []
         new_batch_total_tokens = 0

@@ -68,8 +68,12 @@ class LlamaTransformerLayerWeight(TransformerLayerWeight):
 
     def _load_qkvo_weights(self, weights):
         # input layernorm params
+        #print(__name__)
+        #print(f"\tLayer Number : {self.layer_num_}")
+        
         if f"model.layers.{self.layer_num_}.input_layernorm.weight" in weights:
             self.att_norm_weight_ = self._cuda(weights[f"model.layers.{self.layer_num_}.input_layernorm.weight"])
+            #print(f"\t\tAttention weight : {self.att_norm_weight_.shape}")
 
         n_embed = self.network_config_["hidden_size"]
         split_n_embed = n_embed // self.world_size_
@@ -78,26 +82,33 @@ class LlamaTransformerLayerWeight(TransformerLayerWeight):
             self.q_weight_ = weights[f"model.layers.{self.layer_num_}.self_attn.q_proj.weight"][split_n_embed *
                                                                                                 self.tp_rank_: split_n_embed * (self.tp_rank_ + 1), :]
             self.q_weight_ = self._cuda(self.q_weight_.transpose(0, 1))
+            #print(f"\t\tQ shape : {self.q_weight_.shape}")
+            
         if f"model.layers.{self.layer_num_}.self_attn.k_proj.weight" in weights:
             self.k_weight_ = weights[f"model.layers.{self.layer_num_}.self_attn.k_proj.weight"][split_n_embed *
                                                                                                 self.tp_rank_: split_n_embed * (self.tp_rank_ + 1), :]
             self.k_weight_ = self._cuda(self.k_weight_.transpose(0, 1))
+            #print(f"\t\tK shape : {self.k_weight_.shape}")
 
         if f"model.layers.{self.layer_num_}.self_attn.v_proj.weight" in weights:
             self.v_weight_ = weights[f"model.layers.{self.layer_num_}.self_attn.v_proj.weight"][split_n_embed *
                                                                                                 self.tp_rank_: split_n_embed * (self.tp_rank_ + 1), :]
             self.v_weight_ = self._cuda(self.v_weight_.transpose(0, 1))
+            #print(f"\t\tV shape : {self.v_weight_.shape}")
         
         # attention output dense params
         if f"model.layers.{self.layer_num_}.self_attn.o_proj.weight" in weights:
             self.o_weight_ = weights[f"model.layers.{self.layer_num_}.self_attn.o_proj.weight"][:,
                                                                                                             split_n_embed * self.tp_rank_: split_n_embed * (self.tp_rank_ + 1)]
             self.o_weight_ = self._cuda(self.o_weight_.transpose(0, 1))
+            #print(f"\t\tO shape : {self.o_weight_.shape}")
     
 
     def _load_ffn_weights(self, weights):
         if f"model.layers.{self.layer_num_}.post_attention_layernorm.weight" in weights:
             self.ffn_norm_weight_ = self._cuda(weights[f"model.layers.{self.layer_num_}.post_attention_layernorm.weight"])
+            #print(f"\t\tPost Attention norm shape : {self.ffn_norm_weight_.shape}")
+            
     
         inter_size = self.network_config_['intermediate_size']
         split_inter_size = inter_size // self.world_size_
@@ -106,13 +117,16 @@ class LlamaTransformerLayerWeight(TransformerLayerWeight):
             self.up_proj = weights[f"model.layers.{self.layer_num_}.mlp.up_proj.weight"][split_inter_size *
                                                                                          self.tp_rank_: split_inter_size * (self.tp_rank_ + 1), :]
             self.up_proj = self._cuda(self.up_proj.transpose(0, 1))
+            #print(f"\t\tUp proj shape : {self.up_proj.shape}")
 
         if f"model.layers.{self.layer_num_}.mlp.gate_proj.weight" in weights:
             self.gate_proj = weights[f"model.layers.{self.layer_num_}.mlp.gate_proj.weight"][split_inter_size *
                                                                                              self.tp_rank_: split_inter_size * (self.tp_rank_ + 1), :]
             self.gate_proj = self._cuda(self.gate_proj.transpose(0, 1))
+            #print(f"\t\tGate proj shape : {self.gate_proj.shape}")
 
         if f"model.layers.{self.layer_num_}.mlp.down_proj.weight" in weights:
             self.down_proj = weights[f"model.layers.{self.layer_num_}.mlp.down_proj.weight"][:,
                                                                                              split_inter_size * self.tp_rank_: split_inter_size * (self.tp_rank_ + 1)]
             self.down_proj = self._cuda(self.down_proj.transpose(0, 1))
+            #print(f"\t\tDown proj shape : {self.down_proj.shape}")

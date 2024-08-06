@@ -18,15 +18,20 @@ def load_hf_weights(data_type, weight_dir, transformer_layer_list=None,
 
     use_safetensors = True
     files = os.listdir(weight_dir)
+    print(f"<< Weight dir path : {os.path.abspath(weight_dir)}>>")
+    print(f"\tInside there are : {files}")
     candidate_files = list(filter(lambda x : x.endswith('.safetensors'), files))
+    print(f"\tused files : {candidate_files} len : {len(candidate_files)}")
     if len(candidate_files) == 0:
         use_safetensors = False
         candidate_files = list(filter(lambda x : x.endswith('.bin'), files))
+        print(f"\tnew used files : {candidate_files} len : {len(candidate_files)}")
     assert len(candidate_files) != 0, "can only support pytorch tensor and safetensors format for weights."
 
     model_name = weight_dir.rstrip("/").split("/")[-1]
     # for file_ in tqdm(candidate_files, desc=f"load {model_name}"):
     for file_ in candidate_files:
+        print(f"Loading weight : {file_}")
         if use_safetensors:
             weights = safe_open(os.path.join(weight_dir, file_), 'pt', 'cpu')
             weights = {k: weights.get_tensor(k) for k in weights.keys()}
@@ -37,6 +42,7 @@ def load_hf_weights(data_type, weight_dir, transformer_layer_list=None,
         #         print(key)
         #         print(tensor.shape)
 
+        print(f"\tTransformer layer : {type(transformer_layer_list[0])} / len : {len(transformer_layer_list)}")
         if transformer_layer_list is not None:
             for layer in transformer_layer_list:
                 layer.load_hf_weights(weights, swap=swap)

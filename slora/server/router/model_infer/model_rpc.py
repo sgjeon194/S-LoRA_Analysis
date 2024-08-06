@@ -53,12 +53,15 @@ class ModelRpcServer(rpyc.Service):
         dist.init_process_group('nccl', init_method=f'tcp://127.0.0.1:{setting["nccl_port"]}', rank=rank_id, world_size=world_size)
         torch.cuda.set_device(rank_id)
 
+        print("Init base model")
+        print(f"Base model : {weight_dir}")
         model_cfg = get_model_config(weight_dir, dummy=input_params.dummy)
 
         try:
             self.model_type = model_cfg["model_type"]
             if self.model_type == "llama":
                 if "num_key_value_heads" in model_cfg.keys():
+                    print("Llama2")
                     self.model = Llama2TpPartModel(rank_id, world_size, weight_dir,
                                                     max_total_token_num,
                                                     mem_adapter_size=input_params.pool_size_lora,
@@ -66,6 +69,7 @@ class ModelRpcServer(rpyc.Service):
                                                     dummy=input_params.dummy)
                     
                 else:
+                    print("Llama")
                     self.model = LlamaTpPartModel(rank_id, world_size, weight_dir,
                                                     max_total_token_num,
                                                     mem_adapter_size=input_params.pool_size_lora,
@@ -81,10 +85,13 @@ class ModelRpcServer(rpyc.Service):
         ''' init adapters '''
         # TODO support TP for adapters
         # print("adapter_dirs", adapter_dirs)
+        
+        print("Init adapters")
         self.adapters = []
         self.adapter_id = {}
         for adapter_dir in tqdm(adapter_dirs, desc="load adapters"):
             self.adapter_id[adapter_dir] = len(self.adapters)
+            print(f"Adapter Dir : {adapter_dir}")
             self.adapters.append(LoraTpPartAdapter(rank_id, world_size, adapter_dir, model_cfg,
                                                    swap=input_params.swap, dummy=input_params.dummy,
                                                    no_lora_swap=input_params.no_lora_swap,
@@ -101,6 +108,7 @@ class ModelRpcServer(rpyc.Service):
             self.infer_adapter = InferAdapter.init(self.model.mem_manager,
                                                    prefetch_stream)
         ''' finish init adapters '''
+        print(adapter_dirs)
         
         set_random_seed(2147483647)
         return
@@ -108,10 +116,15 @@ class ModelRpcServer(rpyc.Service):
 
     @torch.no_grad()
     def exposed_load_adapters(self, adapter_dirs, prefetch=False):
+        print(f"load adapters {adapter_dirs}")
+        self_adapters = [adapter.lora_dir for adapter in self.adapters if adapter is not None]
+        print(f"self adapters {len(self_adapters)}")
         if not self.input_params.bmm:
             adapters = []
             for adapter_dir in adapter_dirs:
                 if adapter_dir is not None:
+                    # print(f"adapter id {self.adapter_id}")
+                    print(f"adapter_id[{adapter_dir}] = {self.adapter_id[adapter_dir]}")
                     adapters.append(self.adapters[self.adapter_id[adapter_dir]])
             self.infer_adapter.load_adapters(adapters, prefetch=prefetch)
         else:
@@ -191,8 +204,9 @@ class ModelRpcServer(rpyc.Service):
     
     def forward(self, batch_id, is_prefill):
         batch: InferBatch = self.cache.pop(batch_id)
-        # print(batch.requests)
-        # print([req["request_id"] for req in batch.requests])
+        
+        # print(f"Requests : {batch.requests}")
+        # print(f"IDs : {batch.input_ids.cpu().numpy()}")
         kwargs = {
             "batch_size": len(batch),
             "total_token_num": batch.nopad_total_token_num,
@@ -240,7 +254,7 @@ class ModelRpcServer(rpyc.Service):
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()
         output_dict = {}
-        new_input_ids = []        
+        new_input_ids = []
         for i, (r, all_input_ids, next_token_id, next_token_logprob) in enumerate(zip(batch.requests, batch.all_input_ids, next_token_ids, next_token_logprobs)):
             # all_input_ids_tensor = torch.tensor(all_input_ids, dtype=torch.long, device="cuda")
             all_input_ids.append(int(next_token_id))

@@ -43,4 +43,5 @@ if __name__ == "__main__":
     if args.no_mem_pool:
         cmd += " --no-mem-pool"
 
+    #print(cmd)
     os.system(cmd)
