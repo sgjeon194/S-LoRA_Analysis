@@ -116,15 +116,16 @@ class ModelRpcServer(rpyc.Service):
 
     @torch.no_grad()
     def exposed_load_adapters(self, adapter_dirs, prefetch=False):
-        print(f"load adapters {adapter_dirs}")
-        self_adapters = [adapter.lora_dir for adapter in self.adapters if adapter is not None]
-        print(f"self adapters {len(self_adapters)}")
+        print(f"\tloading {adapter_dirs}")
+        # self_adapters = [adapter.lora_dir for adapter in self.adapters if adapter is not None]
+        # print(f"self adapters {len(self_adapters)}")
         if not self.input_params.bmm:
             adapters = []
             for adapter_dir in adapter_dirs:
                 if adapter_dir is not None:
                     # print(f"adapter id {self.adapter_id}")
-                    print(f"adapter_id[{adapter_dir}] = {self.adapter_id[adapter_dir]}")
+                    print(f"\tFinding adapter id in host memory : ")
+                    print(f"\t\tadapter_id[{adapter_dir}] = {self.adapter_id[adapter_dir]}")
                     adapters.append(self.adapters[self.adapter_id[adapter_dir]])
             self.infer_adapter.load_adapters(adapters, prefetch=prefetch)
         else:

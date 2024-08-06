@@ -112,10 +112,10 @@ class LoraUnorderedBatchInfer:
                 (infer_state.total_token_num, self.base_model.tp_k_head_num_, self.base_model.head_dim_),
                 dtype=torch.float16, device="cuda")
         init_bloc(b_loc, b_seq_len, max_len_in_batch, infer_state.prefill_mem_index)
-        print("\n<<Prefill>>")
-        print(f"\tbatch_size {batch_size}")
+        print("\n\t<<Prefill>>")
+        print(f"\t\tbatch_size {batch_size}")
         predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
-        print("<Prefill end> -------------")
+        print("\t<Prefill end> -------------")
         return predict_logics
 
 
@@ -156,10 +156,10 @@ class LoraUnorderedBatchInfer:
 
         infer_state.init_some_extra_state(self.base_model, batch_size, total_token_num, max_len_in_batch,
                                           input_ids, b_loc, b_start_loc, b_seq_len, False)
-        print(f"\n<<Decode>>")
-        print(f"\tbatch_size {batch_size}")
+        print(f"\n\t<<Decode>>")
+        print(f"\t\tbatch_size {batch_size}")
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
-        print("<Decode end> -------------")
+        print("\t<Decode end> -------------")
         return predict_logics
 
 
