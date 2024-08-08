@@ -44,7 +44,7 @@ def generate_requests(num_adapters, alpha, req_rate, cv, duration,
     # ind = (probs * num_adapters).astype(int)
 
     ###### Line 분포
-    #ind = [i for i in range(100)]
+    # ind = [i for i in range(100)]
 
     ###### Adapter 하나당 2개의 연속된 request 
     ind = [i // 2 for i in range(100)]

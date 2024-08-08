@@ -10,3 +10,4 @@ dist
 *.json
 *.jsonl
 *.pdf
+*.txt

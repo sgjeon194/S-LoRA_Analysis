@@ -331,16 +331,18 @@ class RouterManager:
     async def _handle_finish_req(self, batch: Batch, has_new_finished_req, minibatch=False):
         if has_new_finished_req:
             batch.filter_finished()
-
+            print("\n\tHas new finished request")
             # unmerge adapter from base model
             if self.input_params.scheduler == "peft" and batch.is_clear():
                 ret = []
+                print("\tUnmerging Adapter (여기 체크 필요)")
                 for tp_rank in range(self.world_size):
                     ret.append(self.model_rpcs[tp_rank].unmerge_adapter())
                 await asyncio.gather(*ret)
 
             if not minibatch and not self.input_params.no_lora:
                 ret = []
+                print("\tOffloading adapter")
                 for tp_rank in range(self.world_size):
                     ret.append(self.model_rpcs[tp_rank].offload_adapters(batch.adapter_dirs))
                 await asyncio.gather(*ret)
@@ -355,6 +357,7 @@ class RouterManager:
         if self.running_batch is not None and self.running_batch.is_clear():
             if not self.input_params.no_lora:
                 # offload model and adapters
+                print("\tRunning batch is clear, so offload adpaters")
                 ret = []
                 for tp_rank in range(self.world_size):
                     ret.append(self.model_rpcs[tp_rank].offload_adapters())

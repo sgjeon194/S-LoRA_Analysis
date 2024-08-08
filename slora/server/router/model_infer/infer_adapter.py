@@ -192,6 +192,7 @@ class InferAdapter:
             print(f"offload 0 adapters, {len(self.adapter_dirs)} remains")
             return
         if len(reserve_adapter_dirs) == 0:
+            print(f"\tRemoving all adapters : {self.adapter_dirs}")
             print(f"offload {len(self.adapter_dirs)} adapters, 0 remains")
             self.mem_manager.free(self.a_loc)
             self.adapter_dirs=[]
@@ -204,6 +205,7 @@ class InferAdapter:
 
         # mark_start("offload scan")
         remove_ind = []
+        remove_adapters = []
         left_ind = []
         new_adapter_dirs = []
         self.idx_map = {}
@@ -212,17 +214,20 @@ class InferAdapter:
                 (adapter_dir not in self.prefetch_tag or
                  self.prefetch_tag[adapter_dir] != self.cur_tag)):
                 remove_ind.append(self.a_loc[self.a_start[i]:self.a_start[i] + self.a_len[i]])
+                remove_adapters.append(adapter_dir)
             else:
                 left_ind.append(i)
                 self.idx_map[adapter_dir] = len(new_adapter_dirs)
                 new_adapter_dirs.append(adapter_dir)
         if len(remove_ind) == 0:
             return
+        
+        print(f"\tRemoving these : {remove_adapters}")
         # mark_end("offload scan")
         self.adapter_dirs = new_adapter_dirs
         tot_size = torch.sum(self.a_len[left_ind]).item()
-        print(f"offload {len(remove_ind)} adapters, {len(left_ind)} remains")
-
+        print(f"\toffload {len(remove_ind)} adapters, {len(left_ind)} remains")
+        
         # mark_start("offload cat")
         remove_ind = torch.cat(remove_ind)
         # mark_end("offload cat")
@@ -256,6 +261,7 @@ class InferAdapter:
         # print(f"current adapters on batch (offloaded {len(remove_ind)})",
         #       len(self.adapter_dirs), self.adapter_dirs)
         # print(self.mem_manager.can_use_mem_size_suffix // 4 / 32)
+        print()
 
 
 import triton
