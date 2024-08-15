@@ -73,6 +73,7 @@ inline bool launch_bgmv_kernel(T* Y, const T* X, const T* W,
   return true;
 }
 
+// bgmv Batch gather matrix vector multiplication
 void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w, torch::Tensor start_indicies,
                    torch::Tensor lora_ranks, torch::Tensor loc_indicies, torch::Tensor indicies,
                    int64_t qkvo, torch::Tensor lora_scales) {

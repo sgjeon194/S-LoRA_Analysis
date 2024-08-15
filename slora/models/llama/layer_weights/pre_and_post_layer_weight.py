@@ -29,9 +29,9 @@ class LlamaPreAndPostLayerWeight(PreAndPostLayerWeight):
         vob_size = self.network_config_["vocab_size"]
         split_vob_size = vob_size // self.world_size_
         n_embed = self.network_config_["hidden_size"]
-        print(__name__)
+        #print(__name__)
         if "model.embed_tokens.weight" in weights:
-            print(f"Embedded token weights : {weights['model.embed_tokens.weight'].shape}")
+            #print(f"Embedded token weights : {weights['model.embed_tokens.weight'].shape}")
             self.wte_weight_ = self._cuda(weights['model.embed_tokens.weight'][split_vob_size *
                                                                     self.tp_rank_: split_vob_size * (self.tp_rank_ + 1), :])
         if 'lm_head.weight' in weights:

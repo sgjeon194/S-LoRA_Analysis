@@ -44,4 +44,12 @@ if __name__ == "__main__":
         cmd += " --no-mem-pool"
 
     #print(cmd)
+    # python -m slora.server.api_server --max_total_token_num 10000 --model huggyllama/llama-7b 
+    # --tokenizer_mode auto --pool-size-lora 0 
+    # --lora tloen/alpaca-lora-7b-0 --lora MBZUAI/bactrian-x-llama-7b-lora-0 
+    # --lora tloen/alpaca-lora-7b-1 --lora MBZUAI/bactrian-x-llama-7b-lora-1 
+    # --lora tloen/alpaca-lora-7b-2 --lora MBZUAI/bactrian-x-llama-7b-lora-2 --swap
+    
     os.system(cmd)
+
+

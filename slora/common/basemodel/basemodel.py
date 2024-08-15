@@ -82,6 +82,7 @@ class TpPartBaseModel:
             dummy=self.dummy)
         self.pre_post_weight.verify_load()
         [weight.verify_load() for weight in self.trans_layers_weight]
+        print("==== Base model weight load finished ====")
         return 
     
     def _init_mem_manager(self):

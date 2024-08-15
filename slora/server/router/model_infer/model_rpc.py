@@ -86,6 +86,22 @@ class ModelRpcServer(rpyc.Service):
         # TODO support TP for adapters
         # print("adapter_dirs", adapter_dirs)
         
+        print(f"\tprepost layer : {self.model.pre_post_weight.lm_head_weight_.shape}")
+        print(f"\ttrans layer len = {len(self.model.trans_layers_weight)}")
+        for i in range(len(self.model.trans_layers_weight)):
+            layer_weight = self.model.trans_layers_weight[i]
+            print(f"\tLayer {i} : ")
+            print(f"\t\tAtten norm : {layer_weight.att_norm_weight_.shape}")
+            print(f"\t\tQKVO : Q - {layer_weight.q_weight_.shape} / K - {layer_weight.k_weight_.shape} \
+                  \n\t\t\t/ V - {layer_weight.v_weight_.shape} / O - {layer_weight.o_weight_.shape}")
+            print(f"\t\tLayer norm : {layer_weight.ffn_norm_weight_.shape}")
+            print(f"\t\tUp proj : {layer_weight.up_proj.shape}")
+            print(f"\t\tGate proj : {layer_weight.gate_proj.shape}")
+            print(f"\t\tDown proj : {layer_weight.down_proj.shape}")
+            
+        print("Model loading finished")
+        print("----------------------\n")
+        
         print("Init adapters")
         self.adapters = []
         self.adapter_id = {}
@@ -96,6 +112,22 @@ class ModelRpcServer(rpyc.Service):
                                                    swap=input_params.swap, dummy=input_params.dummy,
                                                    no_lora_swap=input_params.no_lora_swap,
 						   prefetch_stream=prefetch_stream))
+            new_adapter = self.adapters[-1]
+            print(f"{adapter_dir} loading finished")
+            for i in range(len(new_adapter.layers)):
+                layer_weight_adapter = new_adapter.layers[i]
+                print(f"\tLayer {i} :")
+                print(f"\t\tLoRA A QKVO : Q - {layer_weight_adapter.q_lora_A_home.shape} / K - {layer_weight_adapter.k_lora_A_home.shape} \
+                    \n\t\t\t/ V - {layer_weight_adapter.q_lora_A_home.shape} / O - {layer_weight_adapter.q_lora_A_home.shape}")
+                print(f"\t\tLoRA B QKVO : Q - {layer_weight_adapter.q_lora_B_home.shape} / K - {layer_weight_adapter.k_lora_B_home.shape} \
+                    \n\t\t\t/ V - {layer_weight_adapter.v_lora_B_home.shape} / O - {layer_weight_adapter.o_lora_B_home.shape}")
+                rank = layer_weight_adapter.lora_config["r"]
+                num_head = layer_weight_adapter.network_config["num_attention_heads"]
+                print(f"\t\tRank : {rank}, number of heads : {num_head}")
+                print(f"\t\tcombining reshaped A : {layer_weight_adapter.q_lora_A_home.T.reshape(rank, num_head, -1).shape}")
+                print(f"\t\tReshaped W Combined home : {layer_weight_adapter.w_combined_home.shape}")
+                
+                
         self.adapter_id[None] = len(self.adapters)
         self.adapters.append(None)
 

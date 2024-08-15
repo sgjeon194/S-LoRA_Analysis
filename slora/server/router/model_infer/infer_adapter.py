@@ -45,8 +45,10 @@ class InferAdapter:
         h = adapter.network_config["hidden_size"]
         head_num = adapter.network_config["num_attention_heads"]
         head_dim = h // head_num
-
+        
+        total_load_time = 0
         for i in range(adapter.network_config["num_hidden_layers"]):
+            load_start = time.time()
             adapter.layers[i].load_to_gpu(prefetch=prefetch)
             #self.mem_manager.key_buffer[i][loc[:r]] = adapter.layers[i].q_lora_A.transpose(0, 1).reshape(r, head_num, head_dim)
             #self.mem_manager.key_buffer[i][loc[r:r * 2]] = adapter.layers[i].k_lora_A.transpose(0, 1).reshape(r, head_num, head_dim)
@@ -62,6 +64,12 @@ class InferAdapter:
             #self.mem_manager.key_buffer[i][loc[r * 3:r * 4]] = w_combined[3].T.reshape(r, head_num, head_dim)
 
             adapter.layers[i].offload_from_gpu()
+            load_end = time.time()
+            load_time = load_end - load_start
+            print(f"\tLayer {i} LoRA A load time : {1000 * load_time:0.8} ms")
+            total_load_time = total_load_time + load_time
+        print(f"\tLoad end ==== {1000 * total_load_time:0.8} ms ====")
+            
 
 
     # @calculate_time(show=True, min_cost_ms=0)

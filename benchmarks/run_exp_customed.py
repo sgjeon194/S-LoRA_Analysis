@@ -255,10 +255,13 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         avg_len = np.mean([req.prompt_len + req.output_len for req in requests])
         print("num_adapters", len(adapter_dirs), "num_requests", len(requests), "avg_len:", avg_len, "avg_prompt_len:", avg_prompt_len, "avg_output_len:", avg_output_len)
         
+    
     if debug:
         print("num requests:", len(requests))
         for req in requests[:4]:
             print(req)
+
+    requests = requests[0:1]
 
     if backend == "vllm-packed":
         for i in range(len(adapter_dirs)):

@@ -184,6 +184,8 @@ class RouterManager:
         # 이 함수는 서버가 켜져있는 동안 계속 호출되는 중
         if self.running_batch is None:
             req_queue_len = len(self.req_queue.waiting_req_list)
+            # if req_queue_len < 1:
+            #     return
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
