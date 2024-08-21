@@ -40,21 +40,21 @@ def generate_requests(num_adapters, alpha, req_rate, cv, duration,
 
     # generate adapter id
     ###### Power 분포
-    # probs = np.random.power(alpha, tot_req)
-    # ind = (probs * num_adapters).astype(int)
+    probs = np.random.power(alpha, tot_req)
+    ind = (probs * num_adapters).astype(int)
 
     ###### Line 분포
     # ind = [i for i in range(100)]
 
     ###### Adapter 하나당 2개의 연속된 request 
-    ind = [i // 2 for i in range(100)]
+    # ind = [i // 2 for i in range(100)]
     
     ###### Adapter 하나당 2개의 분산된 request 
     # ind = [i for i in range(50)]
     # ind = ind + ind
 
     ###### 모든 request가 같은 adapter
-    #ind = [10 for i in range(100)]
+    # ind = [0 for i in range(tot_req)]
 
     # generate input output len
     input_lens = np.random.randint(input_range[0], input_range[1], tot_req)
@@ -67,7 +67,7 @@ def generate_requests(num_adapters, alpha, req_rate, cv, duration,
     scale = cv * cv / req_rate
     # intervals = np.random.exponential(1.0 / req_rate, tot_req)
     intervals = np.random.gamma(shape, scale, tot_req)
-    for i in range(100):
+    for i in range(tot_req):
         tic += intervals[i]
         requests.append(Request(i, adapter_dirs[ind[i]][0], adapter_dirs[ind[i]][1],
                                 dummy_prompt(input_lens[i]), int(input_lens[i]), int(output_lens[i]),

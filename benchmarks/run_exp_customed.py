@@ -24,6 +24,8 @@ from traceCustomed import generate_requests, get_real_requests
 sys.path.append("../bench_lora")
 from slora.utils.metric import reward, attainment_func
 
+import azureLLMInferenceTrace
+
 GB = 1024 ** 3
 
 # (prompt len, output len, latency)
@@ -59,6 +61,7 @@ async def send_request(
     
     if backend in ["slora"]:
         data = {
+            'req_id' : req_id,
             'model_dir': model_dir,
             'lora_dir': adapter_dir,
             'inputs': prompt,
@@ -86,36 +89,40 @@ async def send_request(
             'ignore_eos': True,
         }
 
-    first_token_latency = None
-    timeout = aiohttp.ClientTimeout(total=3 * 3600)
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        while True:
-            async with session.post(url, headers=headers, json=data) as response:
-                chunks = []
-                async for chunk, _ in response.content.iter_chunks():
-                    if first_token_latency is None:
-                        first_token_latency = time.time() - request_start_time
-                    chunks.append(chunk)
-            output = b"".join(chunks).decode("utf-8")
-            # output = json.loads(output)
-            # print(output)
-            
-            if '\"finished\": -1' not in output:
-                break
-            else:
-                first_token_latency = None
-                break
-            # #     print(output)
-            # #     print(json.loads(output))
-            # break
+    try:
+        first_token_latency = None
+        timeout = aiohttp.ClientTimeout(total=3 * 3600)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            while True:
+                async with session.post(url, headers=headers, json=data) as response:
+                    chunks = []
+                    async for chunk, _ in response.content.iter_chunks():
+                        if first_token_latency is None:
+                            first_token_latency = time.time() - request_start_time
+                        chunks.append(chunk)
+                output = b"".join(chunks).decode("utf-8")
+                # output = json.loads(output)
+                # print(output)
+                
+                if '\"finished\": -1' not in output:
+                    break
+                else:
+                    first_token_latency = None
+                    break
+                # #     print(output)
+                # #     print(json.loads(output))
+                # break
 
-    request_end_time = time.time()
-    request_latency = request_end_time - request_start_time
-    print(f"req_id {req_id} prompt_len {prompt_len} output_len {output_len} "
-          f"request_latency {request_latency:.2f} s, first_token_latency {first_token_latency:.2f} s")
-    REQUEST_LATENCY.append((prompt_len, output_len, request_latency, first_token_latency))
-    return (prompt_len, output_len, request_latency, first_token_latency)
+        request_end_time = time.time()
+        request_latency = request_end_time - request_start_time
+        print(f"req_id {req_id} prompt_len {prompt_len} output_len {output_len} "
+            f"request_latency {request_latency:.2f} s, first_token_latency {first_token_latency:.2f} s")
+        REQUEST_LATENCY.append((prompt_len, output_len, request_latency, first_token_latency))
+        return (prompt_len, output_len, request_latency, first_token_latency)
 
+    except Exception as e:
+        print(f"\nError {e}\n\treq ID : {req_id}, prompt len : {prompt_len} output_len {output_len}\n")
+        return (prompt_len, output_len, None, None)
 
 async def benchmark(
     backend: str,
@@ -128,7 +135,7 @@ async def benchmark(
     for req in input_requests:
         await asyncio.sleep(start + req.req_time - time.time())
         if debug:
-            print(f"{req.req_id} {req.req_time:.5f} wait {start + req.req_time - time.time():.5f} "
+            print(f"{req.req_id} time {req.req_time:.5f} wait {start + req.req_time - time.time():.5f} "
                   f"{req.adapter_dir}")
         task = asyncio.create_task(send_request(backend, server,
                                                 req.req_id, req.model_dir, req.adapter_dir, req.prompt,
@@ -224,6 +231,7 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
     print([(k, v) for k, v in zip(BenchmarkConfig._fields, config)])
 
     num_adapters, alpha, req_rate, cv, duration, input_range, output_range = config
+    duration = 600
     assert duration >= 30
     if mode == "synthetic":
         base_model = BASE_MODEL[model_setting]
@@ -233,9 +241,10 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         if num_adapters == 0:
             adapter_dirs = [(base_model, None)]
             num_adapters = 1
-        requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
-                                 input_range, output_range, adapter_dirs,
-                                 seed=seed)
+        # requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
+        #                          input_range, output_range, adapter_dirs,
+        #                          seed=seed)
+        requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, "")
         avg_prompt_len = np.mean([req.prompt_len for req in requests])
         avg_output_len = np.mean([req.output_len for req in requests])
         avg_len = np.mean([req.prompt_len + req.output_len for req in requests])
@@ -261,7 +270,11 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         for req in requests[:4]:
             print(req)
 
-    requests = requests[0:1]
+
+    #requests = requests[0:1]
+    requests = requests[0:1500]
+    # requests[0].req_time = 0
+    #requests = requests[0:50]
 
     if backend == "vllm-packed":
         for i in range(len(adapter_dirs)):

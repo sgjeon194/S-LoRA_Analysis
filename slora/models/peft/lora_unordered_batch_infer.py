@@ -114,14 +114,14 @@ class LoraUnorderedBatchInfer:
                 (infer_state.total_token_num, self.base_model.tp_k_head_num_, self.base_model.head_dim_),
                 dtype=torch.float16, device="cuda")
         init_bloc(b_loc, b_seq_len, max_len_in_batch, infer_state.prefill_mem_index)
-        print("\n\t<<Prefill>>")
-        print(f"\t\tbatch_size {batch_size}")
+        # print("\n\t<<Prefill>>")
+        # print(f"\t\tbatch_size {batch_size}")
         
         prefill_start_time = time.time()
         predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
         prefill_end_time = time.time()
         
-        print(f"\t<Prefill end> --- time : {1000 * (prefill_end_time - prefill_start_time):0.8} ms -------------")
+        # print(f"\t<Prefill end> --- time : {1000 * (prefill_end_time - prefill_start_time):0.8} ms -------------")
         return predict_logics
 
 
@@ -162,12 +162,12 @@ class LoraUnorderedBatchInfer:
 
         infer_state.init_some_extra_state(self.base_model, batch_size, total_token_num, max_len_in_batch,
                                           input_ids, b_loc, b_start_loc, b_seq_len, False)
-        print(f"\n\t<<Decode>>")
-        print(f"\t\tbatch_size {batch_size}")
+        # print(f"\n\t<<Decode>>")
+        # print(f"\t\tbatch_size {batch_size}")
         decode_start_time = time.time()
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
         decode_end_time = time.time()
-        print(f"\t<Decode end> --- time : {1000 * (decode_end_time - decode_start_time):0.8} ms -------------")
+        # print(f"\t<Decode end> --- time : {1000 * (decode_end_time - decode_start_time):0.8} ms -------------")
         return predict_logics
 
 
@@ -188,7 +188,7 @@ class LoraUnorderedBatchInfer:
         cuda_input_ids = input_ids
         input_embs = self.base_model.pre_infer.token_forward(
                 cuda_input_ids, infer_state, self.base_model.pre_post_weight)
-        print(f"\t\tInput embs : {input_embs.size()}")
+        # print(f"\t\tInput embs : {input_embs.size()}")
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_token_forward(i, input_embs, infer_state, no_lora_compute, no_lora_copy)
         predict_logics = self.base_model.post_infer.token_forward(
@@ -198,7 +198,7 @@ class LoraUnorderedBatchInfer:
 
     @final
     def _lora_context_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False):
-        print(f"\t\tLayer {layer_id}")
+        # print(f"\t\tLayer {layer_id}")
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
@@ -209,7 +209,7 @@ class LoraUnorderedBatchInfer:
     @final
     # @calculate_time(show=True, min_cost_ms=0)
     def _lora_token_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False, no_lora_copy=False):
-        print(f"\t\tLayer {layer_id}")
+        # print(f"\t\tLayer {layer_id}")
         self._lora_token_attention(layer_id, input_embs, infer_state, no_lora_compute, no_lora_copy)
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
@@ -281,7 +281,7 @@ class LoraUnorderedBatchInfer:
         base_time_Q = base_end_Q - base_start_Q
         # print(f"\t\tBase_layer embed_dim : {base_layer_infer.embed_dim_}")
         # print(f"\t\tQ's size : {q.shape}, is on cuda? {q.is_cuda}")
-         # @TODO: fix me, filter requests querying only base model
+        # @TODO: fix me, filter requests querying only base model
         assert(len(q)==len(self.req_bins))
 
         if not no_lora_compute:
@@ -355,9 +355,9 @@ class LoraUnorderedBatchInfer:
             lora_end_V = time.time()
             lora_time_V = lora_end_V - lora_start_V
         #printstart = time.time()
-        print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
-        print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
-        print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
+        # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
+        # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -494,9 +494,9 @@ class LoraUnorderedBatchInfer:
             lora_time_V = lora_end_V - lora_start_V
             
         #printstart = time.time()
-        print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
-        print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
-        print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
+        # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
+        # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -530,7 +530,7 @@ class LoraUnorderedBatchInfer:
             # mark_end("get_o")
             lora_end_O = time.time()
             lora_time_O = lora_end_O - lora_start_O
-        print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
+        # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
         
         return o
 
@@ -574,7 +574,7 @@ class LoraUnorderedBatchInfer:
             # delta_oA = None
             lora_end_O = time.time()
             lora_time_O = lora_end_O - lora_start_O
-        print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
+        # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
         
         return o
 

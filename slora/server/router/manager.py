@@ -144,6 +144,7 @@ class RouterManager:
         sampling_params: SamplingParams,
         request_id: str
     ):
+        #print(f"Request added - id : {request_id}, prompt len : {len(prompt_ids)}, adapter : {adapter_dir}")
         req = Req(adapter_dir, request_id, prompt_ids, sampling_params)
         self.req_queue.append(req)
         self.send_to_detokenization.send_pyobj(req.to_req_detokenization_state())
@@ -191,10 +192,10 @@ class RouterManager:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
                 self.req_queue.reset_abort_list()
             if new_batch is not None:
-                print("\n==== Step1 - New batch ====")
-                print(f"\tInside request queue, there was {req_queue_len} requests")
-                print(f"\tThe new batch has {len(new_batch.reqs)} requests")
-                print(f"\tThe new batch uses {len(new_batch.adapter_dirs)} adapters")
+                # print("\n==== Step1 - New batch ====")
+                # print(f"\tInside request queue, there was {req_queue_len} requests")
+                # print(f"\tThe new batch has {len(new_batch.reqs)} requests")
+                # print(f"\tThe new batch uses {len(new_batch.adapter_dirs)} adapters")
                 self.stats_tool.count_prompt_tokens(new_batch)
                 self.running_batch = new_batch
 
@@ -202,7 +203,7 @@ class RouterManager:
                     # load adapters
                     ret = []
                     for tp_rank in range(self.world_size):
-                        print(f"\tnew batch adapters : {str(new_batch.adapter_dirs)}")
+                        # print(f"\tnew batch adapters : {str(new_batch.adapter_dirs)}")
                         ret.append(self.model_rpcs[tp_rank].load_adapters(new_batch.adapter_dirs))
                     await asyncio.gather(*ret)
 
@@ -220,13 +221,13 @@ class RouterManager:
                 await self._prefill_batch(self.running_batch)
                 await self._filter_runing_batch()
                 self.has_wait_tokens = 0
-                print("---- Step1 end ----\n")
+                # print("---- Step1 end ----\n")
             return
 
         if self.has_wait_tokens < self.max_wait_tokens:
             self.stats_tool.count_output_tokens(self.running_batch)
             
-            print("\n==== Step2 - Waiting for tokens ====")
+            #print("\n==== Step2 - Waiting for tokens ====")
             if (not self.input_params.no_lora and
                 self.input_params.prefetch and (self.has_wait_tokens == self.max_wait_tokens // 2 or
                 self.has_wait_tokens == self.max_wait_tokens - 3) and self.input_params.scheduler != "peft"):
@@ -243,10 +244,10 @@ class RouterManager:
             await self._filter_runing_batch()
 
             self.has_wait_tokens += 1
-            print("---- Step2 end ----\n")
+            #print("---- Step2 end ----\n")
             return
         else:
-            print("\n==== Step3 - Even running a batch, can we generate more? ====")
+            #print("\n==== Step3 - Even running a batch, can we generate more? ====")
             req_queue_len = len(self.req_queue.waiting_req_list)
             new_mini_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             
@@ -272,11 +273,11 @@ class RouterManager:
                     print(f"\tRunning batch now merged minibatch and there is now {len(self.running_batch.reqs)} requests in the running batch")
                 self.has_wait_tokens = 0
             else:
-                print(f"\tRunning batch ")
+                # print(f"\tRunning batch ")
                 self.stats_tool.count_output_tokens(self.running_batch)
                 await self._decode_batch(self.running_batch)
                 await self._filter_runing_batch()
-            print("---- Step3 end ----\n")
+            #print("---- Step3 end ----\n")
         
 
     async def _init_batch(self, batch: Batch):
@@ -334,6 +335,7 @@ class RouterManager:
         if has_new_finished_req:
             batch.filter_finished()
             print("\n\tHas new finished request")
+            print(f"Remaining requests : {len(self.req_queue.waiting_req_list)}")
             # unmerge adapter from base model
             if self.input_params.scheduler == "peft" and batch.is_clear():
                 ret = []
@@ -387,7 +389,7 @@ class RouterManager:
     async def loop_for_netio_req(self):
         while True:
             recv_req = await self.recv_from_httpserver.recv_pyobj()
-            print("\nRequest accepted!!\n")
+            #print("\nRequest accepted!!\n")
             if isinstance(recv_req, tuple) and len(recv_req) == 4:
                 adapter_dir, prompt_ids, sampling_params, request_id = recv_req
                 self.add_req(adapter_dir, prompt_ids, sampling_params, request_id)

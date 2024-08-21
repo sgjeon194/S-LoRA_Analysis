@@ -66,9 +66,9 @@ class InferAdapter:
             adapter.layers[i].offload_from_gpu()
             load_end = time.time()
             load_time = load_end - load_start
-            print(f"\tLayer {i} LoRA A load time : {1000 * load_time:0.8} ms")
+            # print(f"\tLayer {i} LoRA A load time : {1000 * load_time:0.8} ms")
             total_load_time = total_load_time + load_time
-        print(f"\tLoad end ==== {1000 * total_load_time:0.8} ms ====")
+        # print(f"\tLoad end ==== {1000 * total_load_time:0.8} ms ====")
             
 
 
@@ -124,7 +124,7 @@ class InferAdapter:
             new_adapters = []
             tot_size = 0
             # mark_start("load scan")
-            print(f"\t\tNot prefetch")
+            #print(f"\t\tNot prefetch")
             for adapter in adapters:
                 if adapter is not None and adapter.lora_dir not in self.idx_map:
                     new_adapters.append(adapter)
@@ -143,10 +143,10 @@ class InferAdapter:
 
         cum_loc = 0
         cum_loc_list = []
-        print(f"\tNeed to load these adapters : {[a.lora_dir for a in adapters]}")
-        print(f"\tThe new adapters : {[a.lora_dir for a in new_adapters]}")
+        # print(f"\tNeed to load these adapters : {[a.lora_dir for a in adapters]}")
+        # print(f"\tThe new adapters : {[a.lora_dir for a in new_adapters]}")
         for i, new_adapter in enumerate(new_adapters):
-            print(f"\t\tadded adapter : {new_adapter.lora_dir}")
+            # print(f"\t\tadded adapter : {new_adapter.lora_dir}")
             cum_loc_list.append(cum_loc)
             self.idx_map[new_adapter.lora_dir] = len(self.adapter_dirs)
             self.adapter_dirs.append(new_adapter.lora_dir)

@@ -145,6 +145,9 @@ async def generate_stream(request: Request) -> Response:
         request_id = request_dict["req_id"]
     else:
         request_id = uuid.uuid4().hex
+        
+    
+    print(f"\nRequest came - id : {request_id}, prompt len : {len(prompt) / 6}, output len : {sampling_params.max_new_tokens}")
     results_generator = httpserver_manager.generate(adapter_dir, prompt, sampling_params, request_id)
 
     # Streaming case
@@ -340,9 +343,9 @@ def main():
                         help="the max size for forward requests in the same time")
     parser.add_argument("--tp", type=int, default=1,
                         help="model tp parral size, the default is 1")
-    parser.add_argument("--max_req_input_len", type=int, default=2048,
+    parser.add_argument("--max_req_input_len", type=int, default=16384,
                         help="the max value for req input tokens num")
-    parser.add_argument("--max_req_total_len", type=int, default=2048 + 1024,
+    parser.add_argument("--max_req_total_len", type=int, default=16384 + 1024,
                         help="the max value for req_input_len + req_output_len")
     parser.add_argument("--nccl_port", type=int, default=28765,
                         help="the nccl_port to build a distributed environment for PyTorch")
