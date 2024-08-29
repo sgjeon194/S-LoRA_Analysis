@@ -282,6 +282,8 @@ class ModelRpcServer(rpyc.Service):
             kwargs["no_lora_compute"] = self.input_params.no_lora_compute
             # kwargs["no_lora_copy"] = self.input_params.no_lora_copy 
 
+        engine.timeDict["request_num"] = len(batch.requests)
+        engine.timeDict["adapter_num"] = len(batch.adapter_dirs)
         logits = engine.forward(**kwargs)
         next_token_ids, next_token_probs = sample(logits, batch)
         next_token_ids = next_token_ids.detach().cpu().numpy()
@@ -308,7 +310,7 @@ class ModelRpcServer(rpyc.Service):
         batch.nopad_max_len_in_batch += 1
         batch.nopad_b_seq_len += 1
         self.cache[batch.batch_id] = batch
-        return output_dict
+        return output_dict, engine.timeDict
 
     def _profile_adapter_prefill(self, adapter, batch_size, max_input_len):
         engine = LoraUnorderedBatchInfer(self.model, [adapter]*batch_size, infer_adapter=self.infer_adapter)

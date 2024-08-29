@@ -39,8 +39,8 @@ class LoraUnorderedBatchInfer:
                 self.req_bins[i] = idx
         
         self.kv_embed_dim = base_model.tp_k_head_num_ * base_model.head_dim_
-        
-
+        self.timeDict = {}
+    
     @torch.no_grad()
     def forward(
             self,
@@ -63,6 +63,7 @@ class LoraUnorderedBatchInfer:
         self.max_b_seq_len = torch.max(b_seq_len).item()
 
         if is_prefill:
+            self.timeDict["arithType"] = "prefill"
             assert(len(self.req_bins)==len(b_seq_len))
             self.batch_req_bins = torch.repeat_interleave(self.req_bins, b_seq_len)
             # self.b_start_loc = torch.cumsum(torch.cat([torch.tensor([0], dtype=torch.long, device="cuda"), b_seq_len[:-1]]), dim=0)
@@ -73,6 +74,7 @@ class LoraUnorderedBatchInfer:
                                  input_ids,
                                  b_loc, b_start_loc, b_seq_len, no_lora_compute)
         else:
+            self.timeDict["arithType"] = "decode"
             for _ in range(3):
                 self.delta.append(torch.zeros((len(b_seq_len), self.max_lora_dim), dtype=torch.float16, device="cuda"))
 
@@ -122,6 +124,7 @@ class LoraUnorderedBatchInfer:
         prefill_end_time = time.time()
         
         # print(f"\t<Prefill end> --- time : {1000 * (prefill_end_time - prefill_start_time):0.8} ms -------------")
+        self.timeDict["total_time"] = 1000 * (prefill_end_time - prefill_start_time)
         return predict_logics
 
 
@@ -168,6 +171,7 @@ class LoraUnorderedBatchInfer:
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
         decode_end_time = time.time()
         # print(f"\t<Decode end> --- time : {1000 * (decode_end_time - decode_start_time):0.8} ms -------------")
+        self.timeDict["total_time"] = 1000 * (decode_end_time - decode_start_time)
         return predict_logics
 
 
@@ -176,6 +180,7 @@ class LoraUnorderedBatchInfer:
         cuda_input_ids = input_ids
         input_embs = self.base_model.pre_infer.context_forward(
                 cuda_input_ids, infer_state, self.base_model.pre_post_weight)
+        self.timeDict["layers"] = []
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_context_forward(i, input_embs, infer_state, no_lora_compute)
         predict_logics = self.base_model.post_infer.token_forward(
@@ -189,6 +194,7 @@ class LoraUnorderedBatchInfer:
         input_embs = self.base_model.pre_infer.token_forward(
                 cuda_input_ids, infer_state, self.base_model.pre_post_weight)
         # print(f"\t\tInput embs : {input_embs.size()}")
+        self.timeDict["layers"] = []
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_token_forward(i, input_embs, infer_state, no_lora_compute, no_lora_copy)
         predict_logics = self.base_model.post_infer.token_forward(
@@ -199,10 +205,21 @@ class LoraUnorderedBatchInfer:
     @final
     def _lora_context_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False):
         # print(f"\t\tLayer {layer_id}")
+        
+        attention_start_time = time.time()
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
+        attention_time = time.time() - attention_start_time
+        
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
+        
+        ffn_start = time.time()
         layer_infer._context_ffn(input_embs, infer_state, layer_weight)
+        ffn_time = time.time() - ffn_start
+        
+        self.timeDict["layers"][-1]["total_attention_time"] = 1000 * attention_time
+        self.timeDict["layers"][-1]["total_ffn_time"] = 1000 * ffn_time
+        
         return input_embs
 
 
@@ -210,12 +227,23 @@ class LoraUnorderedBatchInfer:
     # @calculate_time(show=True, min_cost_ms=0)
     def _lora_token_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False, no_lora_copy=False):
         # print(f"\t\tLayer {layer_id}")
+        
+        attention_start_time = time.time()
         self._lora_token_attention(layer_id, input_embs, infer_state, no_lora_compute, no_lora_copy)
+        attention_time = time.time() - attention_start_time
+        
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
+        
         # mark_start("token_ffn")
+        ffn_start = time.time()
         layer_infer._token_ffn(input_embs, infer_state, layer_weight)
         # mark_end("token_ffn")
+        ffn_time = time.time() - ffn_start
+        
+        self.timeDict["layers"][-1]["total_attention_time"] = 1000 * attention_time
+        self.timeDict["layers"][-1]["total_ffn_time"] = 1000 * ffn_time
+        
         return input_embs
 
 
@@ -224,23 +252,56 @@ class LoraUnorderedBatchInfer:
         #print("\tAttention === ")
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
-        
+
         # layer normalization
+        attention_norm_start = time.time()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
+        attention_norm_time = time.time() - attention_norm_start
+
         # fetch k, v 현재로는 그냥 infer_state.prefill_key_buffer, infer_state.prefill_value_buffer을 반환하는걸로 보임 (decode시 다름)
+        precache_start = time.time()
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
+        precache_time = time.time() - precache_start
+
         # gen new q, k, v (batch different adapters)
+        get_qkv_start = time.time()
         q = self._lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute)
+        get_qkv_time = time.time() - get_qkv_start
+
         input1 = None
+
+        postcache_start = time.time()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
+        postcache_time = time.time() - postcache_start
+
         # compute attention
+        attention_start = time.time()
         o = layer_infer._context_attention_kernel(q, cache_k, cache_v, infer_state, layer_weight)
+        attention_time = time.time() - attention_start
         q = None
+        get_o_start = time.time()
         o = self._lora_get_o(layer_id, o, infer_state, no_lora_compute)
+        get_o_time = time.time() - get_o_start
         # if self.world_size_ > 1:
         #     dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
         # residual
         input_embs.add_(o.view(-1, layer_infer.embed_dim_))
+        
+        attention_time_dict = {}
+        attention_time_dict["layer"]        = layer_id
+        attention_time_dict["atten_norm"]   = 1000 * attention_norm_time
+        attention_time_dict["precache"]     = 1000 * precache_time
+        attention_time_dict["get_qkv"]      = {}
+        attention_time_dict["get_qkv"]["total_time"] = 1000 * get_qkv_time
+        attention_time_dict["get_qkv"]["detail"] = self.get_qkv_timeDict
+        attention_time_dict["postcache"]    = 1000 * postcache_time
+        attention_time_dict["atten_calc"]    = 1000 * attention_time
+        attention_time_dict["get_o"]        = {}
+        attention_time_dict["get_o"]["total_time"] = 1000 * get_o_time
+        attention_time_dict["get_o"]["detail"] = self.get_o_timeDict
+        
+        self.timeDict["layers"].append(attention_time_dict)
+        
         return
 
 
@@ -250,20 +311,54 @@ class LoraUnorderedBatchInfer:
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
         # layer normalization
+        attention_norm_start = time.time()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
+        attention_norm_time = time.time() - attention_norm_start
+        
         # fetch k, v
+        precache_start = time.time()
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
+        precache_time = time.time() - precache_start
+        
         # gen new q, k, v (batch different adapters)
+        get_qkv_start = time.time()
         q = self._batch_lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute, no_lora_copy)
+        get_qkv_time = time.time() - get_qkv_start
+        
         input1 = None
+        
+        postcache_start = time.time()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
+        postcache_time = time.time() - postcache_start
+        
         # compute attention
+        attention_start = time.time()
         o = layer_infer._token_attention_kernel(q, infer_state, layer_weight)
+        attention_time = time.time() - attention_start
         q = None
+        
+        get_o_start = time.time()
         o = self._batch_lora_get_o(layer_id, o, infer_state, no_lora_compute)
+        get_o_time = time.time() - get_o_start
+        
         # if self.world_size_ > 1:
         #     dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
         input_embs.add_(o.view(-1, layer_infer.embed_dim_))
+        
+        attention_time_dict = {}
+        attention_time_dict["layer"]        = layer_id
+        attention_time_dict["atten_norm"]   = 1000 * attention_norm_time
+        attention_time_dict["precache"]     = 1000 * precache_time
+        attention_time_dict["get_qkv"]      = {}
+        attention_time_dict["get_qkv"]["total_time"] = 1000 * get_qkv_time
+        attention_time_dict["get_qkv"]["detail"] = self.get_qkv_timeDict
+        attention_time_dict["postcache"]    = 1000 * postcache_time
+        attention_time_dict["atten_calc"]    = 1000 * attention_time
+        attention_time_dict["get_o"]        = {}
+        attention_time_dict["get_o"]["total_time"] = 1000 * get_o_time
+        attention_time_dict["get_o"]["detail"] = self.get_o_timeDict
+        
+        self.timeDict["layers"].append(attention_time_dict)
         return
     
 
@@ -300,8 +395,10 @@ class LoraUnorderedBatchInfer:
             lora_end_Q = time.time()
             lora_time_Q = lora_end_Q - lora_start_Q
 
+        rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                           infer_state.position_cos, infer_state.position_sin)
+        rotary_emb_q_time = time.time() - rotary_emb_q_start
 
         # k (bs, H)
         base_start_K = time.time()
@@ -329,7 +426,9 @@ class LoraUnorderedBatchInfer:
             lora_end_K = time.time()
             lora_time_K = lora_end_K - lora_start_K
 
+        rotary_emb_k_start = time.time()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
+        rotary_emb_k_time = time.time() - rotary_emb_k_start
 
         # v (bs, H)
         base_start_V = time.time()
@@ -358,6 +457,15 @@ class LoraUnorderedBatchInfer:
         # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
         # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
         # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        self.get_qkv_timeDict = {}
+        self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
+        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
+        self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
+        self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
+        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
+        self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
+        self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
+        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -411,9 +519,11 @@ class LoraUnorderedBatchInfer:
             # delta_qA = None
             lora_end_Q = time.time()
             lora_time_Q = lora_end_Q - lora_start_Q
-            
+        
+        rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                        infer_state.position_cos, infer_state.position_sin)
+        rotary_emb_q_time = time.time() - rotary_emb_q_start
 
         # k (S, H)
         base_start_K = time.time()
@@ -453,7 +563,9 @@ class LoraUnorderedBatchInfer:
             lora_end_K = time.time()
             lora_time_K = lora_end_K - lora_start_K
 
+        rotary_emb_k_start = time.time()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
+        rotary_emb_k_time = time.time() - rotary_emb_k_start
 
         # v (S, H)
         base_start_V = time.time()
@@ -497,6 +609,16 @@ class LoraUnorderedBatchInfer:
         # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
         # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
         # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        
+        self.get_qkv_timeDict = {}
+        self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
+        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
+        self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
+        self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
+        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
+        self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
+        self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
+        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -532,6 +654,9 @@ class LoraUnorderedBatchInfer:
             lora_time_O = lora_end_O - lora_start_O
         # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
         
+        self.get_o_timeDict = {}
+        self.get_o_timeDict["o_base"] = 1000 * base_time_O
+        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
         return o
 
 
@@ -576,5 +701,8 @@ class LoraUnorderedBatchInfer:
             lora_time_O = lora_end_O - lora_start_O
         # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
         
+        self.get_o_timeDict = {}
+        self.get_o_timeDict["o_base"] = 1000 * base_time_O
+        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
         return o
 

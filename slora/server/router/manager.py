@@ -27,6 +27,7 @@ from slora.server.router.vtc_req_queue import VTCReqQueue
 from slora.server.router.pets_req_queue import PETSReqQueue
 from slora.server.router.peft_req_queue import PEFTReqQueue
 
+import json
 
 def get_scheduler(input_params, adapter_dirs):
     if input_params.scheduler == "vtc_fair":
@@ -93,6 +94,8 @@ class RouterManager:
 
         self.stats_tool = Stats(log_stats, log_stats_interval)
 
+        self.time_dict_list = []
+        self.warm_up_finished = False
 
     async def wait_to_model_ready(self):
         print("WAIT TO MODEL READY")
@@ -144,7 +147,6 @@ class RouterManager:
         sampling_params: SamplingParams,
         request_id: str
     ):
-        #print(f"Request added - id : {request_id}, prompt len : {len(prompt_ids)}, adapter : {adapter_dir}")
         req = Req(adapter_dir, request_id, prompt_ids, sampling_params)
         self.req_queue.append(req)
         self.send_to_detokenization.send_pyobj(req.to_req_detokenization_state())
@@ -207,7 +209,6 @@ class RouterManager:
                         ret.append(self.model_rpcs[tp_rank].load_adapters(new_batch.adapter_dirs))
                     await asyncio.gather(*ret)
 
-                
                 # merge adapter to base model
                 if self.input_params.scheduler == "peft":
                     print("peft")
@@ -223,7 +224,7 @@ class RouterManager:
                 self.has_wait_tokens = 0
                 # print("---- Step1 end ----\n")
             return
-
+        
         if self.has_wait_tokens < self.max_wait_tokens:
             self.stats_tool.count_output_tokens(self.running_batch)
             
@@ -291,11 +292,18 @@ class RouterManager:
         rets = [self.model_rpcs[tp_rank].prefill_batch(batch.batch_id) for tp_rank in range(self.world_size)]
         ans = await asyncio.gather(*rets)
         if self.world_size != 1:
-            req_to_out_token_id = obtain(ans[0])
+            req_to_out_token_id = obtain(ans[0][0])
         else:
-            req_to_out_token_id = ans[0]
+            req_to_out_token_id = ans[0][0]
         self._add_token_id_to_req(batch, req_to_out_token_id)
         has_new_finished_req = batch.mark_finished_req(self.eos_id)
+        
+        if self.warm_up_finished:
+            timeDict = {}
+            timeDict["batch_id"] = batch.batch_id
+            timeDict.update(ans[0][1])
+            writeTimeDict(timeDict)
+            
         self._send_to_detokenization_proc(batch, req_to_out_token_id)
         await self._handle_finish_req(batch, has_new_finished_req, minibatch=True)
         return
@@ -306,11 +314,18 @@ class RouterManager:
         ans = await asyncio.gather(*rets)
         #print(f"Ans : len = {len(ans)} value sample = {ans[0]}")
         if self.world_size != 1:
-            req_to_out_token_id = obtain(ans[0])
+            req_to_out_token_id = obtain(ans[0][0])
         else:
-            req_to_out_token_id = ans[0]
+            req_to_out_token_id = ans[0][0]
         self._add_token_id_to_req(batch, req_to_out_token_id)
         has_new_finished_req = batch.mark_finished_req(self.eos_id)
+        
+        if self.warm_up_finished:
+            timeDict = {}
+            timeDict["batch_id"] = batch.batch_id
+            timeDict.update(ans[0][1])
+            writeTimeDict(timeDict)
+            
         self._send_to_detokenization_proc(batch, req_to_out_token_id)
         await self._handle_finish_req(batch, has_new_finished_req)
         return
@@ -382,7 +397,11 @@ class RouterManager:
         for req_id, (new_token_id, new_gen_metadata) in req_ans.items():
             req = batch.id_to_reqs[req_id]
             batch_out.reqs_infs.append((req_id, new_token_id, new_gen_metadata, req.has_generate_finished, req.aborted))
-    
+            if req.has_generate_finished:
+                if self.warm_up_finished == False:
+                    print("\nFinished warm up!\n")
+                self.warm_up_finished = True
+                
         self.send_to_detokenization.send_pyobj(batch_out)
         return
 
@@ -407,7 +426,6 @@ class RouterManager:
         for model_rpc in self.model_rpcs:
             model_rpc.rpc_server_process.join()
         return
-
 
 def start_router_process(args, router_port, detokenization_port, model_rpc_ports, mode, pipe_writer):
     input_params = InputParams(max_req_total_len=args.max_req_total_len,
@@ -477,3 +495,16 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
     loop.create_task(router.loop_for_fwd())
     loop.run_until_complete(router.loop_for_netio_req())
     return
+
+def writeTimeDict(data):
+    current_file_path = os.path.abspath(__file__)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+    folder_path = f"{project_root}/Logs"
+    
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+        
+    file = open(f"{folder_path}/log.txt", 'a')
+    file.write(json.dumps(data))
+    file.write(", ")
+    file.close()

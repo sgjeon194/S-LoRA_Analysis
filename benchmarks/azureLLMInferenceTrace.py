@@ -25,7 +25,7 @@ def generate_requests(num_adapters, alpha, adapter_dirs, trace_type, seed=42):
     for trace_name, trace_filename in zip(TRACE_NAMES, TRACE_FILENAMES):
         df_traces[trace_name] = pd.read_csv(os.path.dirname(os.path.abspath(__file__)) + "/" + trace_filename, parse_dates=["TIMESTAMP"])
         
-    trace = df_traces["Conversation"]
+    trace = df_traces[trace_type]
     
     # generate adapter id
     tot_req = len(trace)

@@ -31,6 +31,7 @@ GB = 1024 ** 3
 # (prompt len, output len, latency)
 REQUEST_LATENCY: List[Tuple[int, int, float]] = []
 vllm_packed_adapter_dir_to_url_map = {}
+warmup = False
 
 def get_peak_mem(server):
     url = server + "/get_peak_mem"
@@ -244,7 +245,7 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         # requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
         #                          input_range, output_range, adapter_dirs,
         #                          seed=seed)
-        requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, "")
+        requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, 0)
         avg_prompt_len = np.mean([req.prompt_len for req in requests])
         avg_output_len = np.mean([req.output_len for req in requests])
         avg_len = np.mean([req.prompt_len + req.output_len for req in requests])
@@ -270,11 +271,12 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         for req in requests[:4]:
             print(req)
 
-
-    #requests = requests[0:1]
-    requests = requests[0:1500]
+    if warmup == True:
+        requests = requests[0:1]
+    else:
+        requests = requests[0:1500]
     # requests[0].req_time = 0
-    #requests = requests[0:50]
+    # requests = requests[0:50]
 
     if backend == "vllm-packed":
         for i in range(len(adapter_dirs)):
@@ -315,6 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--server", type=str, default="http://localhost:8000")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--warmup", type=str, default="F")
     args = parser.parse_args()
 
     assert not args.no_lora_copy or args.no_lora_compute
@@ -333,6 +336,8 @@ if __name__ == "__main__":
         args.output = "no_lora_compute_results.jsonl"
     if args.debug or args.breakdown:
         args.output = "debug_" + args.output
+    if args.warmup == "T":
+        warmup = True
 
     suites = get_all_suites(mode=args.mode, debug=args.debug, suite=args.suite, breakdown=args.breakdown)
 
