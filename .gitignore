@@ -11,4 +11,4 @@ dist
 *.jsonl
 *.pdf
 *.txt
-Logs
+Logs/.ipynb_checkpoints

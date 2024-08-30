@@ -283,7 +283,8 @@ class ModelRpcServer(rpyc.Service):
             # kwargs["no_lora_copy"] = self.input_params.no_lora_copy 
 
         engine.timeDict["request_num"] = len(batch.requests)
-        engine.timeDict["adapter_num"] = len(batch.adapter_dirs)
+        engine.timeDict["adapter_num"] = len(set(adapters))
+            
         logits = engine.forward(**kwargs)
         next_token_ids, next_token_probs = sample(logits, batch)
         next_token_ids = next_token_ids.detach().cpu().numpy()
@@ -324,7 +325,6 @@ class ModelRpcServer(rpyc.Service):
         test_data = torch.from_numpy(test_data).cuda()
         engine = self.model if adapter_engine is None else adapter_engine
 
-        
         b_loc = torch.zeros(batch_size, input_len, dtype=torch.long, device="cuda")
         b_start_loc = torch.zeros(batch_size, dtype=torch.int32, device="cuda")
         b_seq_len = torch.zeros(batch_size, dtype=torch.int32, device="cuda")
