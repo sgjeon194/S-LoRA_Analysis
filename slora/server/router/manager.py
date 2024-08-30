@@ -179,6 +179,8 @@ class RouterManager:
             if self.running_batch is None:
                 await asyncio.sleep(0.01)  # 10ms
 
+    no_request_started = False
+    
     async def _step(self):
         """
         事件处理循环
@@ -223,6 +225,18 @@ class RouterManager:
                 await self._filter_runing_batch()
                 self.has_wait_tokens = 0
                 # print("---- Step1 end ----\n")
+            else:
+                if not self.no_request_started:
+                    timeDict = {}
+                    timeDict["batch_id"] = ""
+                    timeDict["request_num"] = 0
+                    timeDict["adapter_num"] = 0
+                    timeDict["arithType"] = ""
+                    timeDict["layers"] = []
+                    timeDict["run_time"] = 1000 * time.time()
+                    writeTimeDict(timeDict)
+                    self.no_request_started = True
+                    
             return
         
         if self.has_wait_tokens < self.max_wait_tokens:
@@ -289,6 +303,17 @@ class RouterManager:
 
     async def _prefill_batch(self, batch, minibatch=True):
         await self._init_batch(batch)
+        if self.no_request_started:
+            timeDict = {}
+            timeDict["batch_id"] = ""
+            timeDict["request_num"] = 0
+            timeDict["adapter_num"] = 0
+            timeDict["arithType"] = ""
+            timeDict["layers"] = []
+            timeDict["run_time"] = 1000 * time.time()
+            writeTimeDict(timeDict)
+            self.no_request_started = False
+            
         rets = [self.model_rpcs[tp_rank].prefill_batch(batch.batch_id) for tp_rank in range(self.world_size)]
         ans = await asyncio.gather(*rets)
         if self.world_size != 1:
@@ -297,7 +322,7 @@ class RouterManager:
             req_to_out_token_id = ans[0][0]
         self._add_token_id_to_req(batch, req_to_out_token_id)
         has_new_finished_req = batch.mark_finished_req(self.eos_id)
-        
+            
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
@@ -310,6 +335,18 @@ class RouterManager:
 
     async def _decode_batch(self, batch:Batch):
         self.req_queue.update_counter(batch)
+        
+        if self.no_request_started:
+            timeDict = {}
+            timeDict["batch_id"] = ""
+            timeDict["request_num"] = 0
+            timeDict["adapter_num"] = 0
+            timeDict["arithType"] = ""
+            timeDict["layers"] = []
+            timeDict["run_time"] = 1000 * time.time()
+            writeTimeDict(timeDict)
+            self.no_request_started = False
+            
         rets = [self.model_rpcs[tp_rank].decode_batch(batch.batch_id) for tp_rank in range(self.world_size)]
         ans = await asyncio.gather(*rets)
         #print(f"Ans : len = {len(ans)} value sample = {ans[0]}")
@@ -320,6 +357,7 @@ class RouterManager:
         self._add_token_id_to_req(batch, req_to_out_token_id)
         has_new_finished_req = batch.mark_finished_req(self.eos_id)
         
+            
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
