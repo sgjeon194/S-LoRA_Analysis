@@ -189,7 +189,7 @@ class RouterManager:
         # 이 함수는 서버가 켜져있는 동안 계속 호출되는 중
         if self.running_batch is None:
             req_queue_len = len(self.req_queue.waiting_req_list)
-            # if req_queue_len < 1:
+            # if req_queue_len < 3:
             #     return
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
@@ -229,8 +229,11 @@ class RouterManager:
                 if not self.no_request_started:
                     timeDict = {}
                     timeDict["batch_id"] = ""
+                    timeDict["ranks"] = 0
                     timeDict["request_num"] = 0
                     timeDict["adapter_num"] = 0
+                    timeDict["total_token_num"] = 0
+                    timeDict["max_len_in_batch"] = 0
                     timeDict["arithType"] = ""
                     timeDict["layers"] = []
                     timeDict["run_time"] = 1000 * time.time()
@@ -306,8 +309,11 @@ class RouterManager:
         if self.no_request_started:
             timeDict = {}
             timeDict["batch_id"] = ""
+            timeDict["ranks"] = 0
             timeDict["request_num"] = 0
             timeDict["adapter_num"] = 0
+            timeDict["total_token_num"] = 0
+            timeDict["max_len_in_batch"] = 0
             timeDict["arithType"] = ""
             timeDict["layers"] = []
             timeDict["run_time"] = 1000 * time.time()
@@ -326,6 +332,7 @@ class RouterManager:
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
+            timeDict["ranks"] = sum([self.lora_ranks[list(self.running_batch.adapter_dirs)[i]] for i in range(len(list(self.running_batch.adapter_dirs)))])
             timeDict.update(ans[0][1])
             writeTimeDict(timeDict)
             
@@ -339,8 +346,11 @@ class RouterManager:
         if self.no_request_started:
             timeDict = {}
             timeDict["batch_id"] = ""
+            timeDict["ranks"] = 0
             timeDict["request_num"] = 0
             timeDict["adapter_num"] = 0
+            timeDict["total_token_num"] = 0
+            timeDict["max_len_in_batch"] = 0
             timeDict["arithType"] = ""
             timeDict["layers"] = []
             timeDict["run_time"] = 1000 * time.time()
@@ -361,6 +371,7 @@ class RouterManager:
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
+            timeDict["ranks"] = sum([self.lora_ranks[list(self.running_batch.adapter_dirs)[i]] for i in range(len(list(self.running_batch.adapter_dirs)))])
             timeDict.update(ans[0][1])
             writeTimeDict(timeDict)
             

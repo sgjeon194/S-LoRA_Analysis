@@ -45,6 +45,7 @@ async def send_request(
     headers = {"User-Agent": "Benchmark Client"}
     url = server + "/generate"
     data = {
+        'req_id': req_id + 7,
         'model_dir': model_dir,
         'lora_dir': adapter_dir,
         'inputs': prompt,
@@ -67,6 +68,7 @@ async def send_request(
                     if first_token_latency is None:
                         first_token_latency = time.time() - request_start_time
                     chunks.append(chunk)
+                    
             output = b"".join(chunks).decode("utf-8")
             output = json.loads(output)
             print(data["lora_dir"])
@@ -133,14 +135,18 @@ def run_exp(server, config, seed=42):
     requests1 = generate_requests(num_adapters, alpha, req_rate, cv, duration,
                                  input_range, output_range, adapter_dirs,
                                  seed=seed, id=0)
-    requests2 = generate_requests(num_adapters, alpha, req_rate, cv, duration,
-                                 input_range, output_range, adapter_dirs,
-                                 seed=seed, id=1)
+    # requests2 = generate_requests(num_adapters, alpha, req_rate, cv, duration,
+    #                              input_range, output_range, adapter_dirs,
+    #                              seed=seed, id=1)
+
+    requests1 = requests1[0:1]
 
     # benchmark
     
+    #requests1 = requests1[0:1]
+    
     _ = asyncio.run(benchmark(server, requests1, id=0))
-    _ = asyncio.run(benchmark(server, requests2, id=1))
+    # _ = asyncio.run(benchmark(server, requests2, id=1))
 
 
 

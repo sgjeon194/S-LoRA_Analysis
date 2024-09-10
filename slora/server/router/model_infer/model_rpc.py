@@ -284,6 +284,8 @@ class ModelRpcServer(rpyc.Service):
 
         engine.timeDict["request_num"] = len(batch.requests)
         engine.timeDict["adapter_num"] = len(set(adapters))
+        engine.timeDict["total_token_num"] = batch.nopad_total_token_num
+        engine.timeDict["max_len_in_batch"] = batch.nopad_max_len_in_batch
         engine.timeDict["run_time"] = 1000 * time.time()
             
         logits = engine.forward(**kwargs)
