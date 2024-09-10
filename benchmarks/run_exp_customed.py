@@ -232,7 +232,7 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
     print([(k, v) for k, v in zip(BenchmarkConfig._fields, config)])
 
     num_adapters, alpha, req_rate, cv, duration, input_range, output_range = config
-    duration = 600
+
     assert duration >= 30
     if mode == "synthetic":
         base_model = BASE_MODEL[model_setting]
@@ -245,7 +245,10 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         # requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
         #                          input_range, output_range, adapter_dirs,
         #                          seed=seed)
-        requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, 0)
+        # requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, 0)
+        requests = azureLLMInferenceTrace.generate_downsampled_requests(num_adapters, alpha, req_rate, duration, 
+                                                                       input_range, output_range, adapter_dirs, 0)
+        
         avg_prompt_len = np.mean([req.prompt_len for req in requests])
         avg_output_len = np.mean([req.output_len for req in requests])
         avg_len = np.mean([req.prompt_len + req.output_len for req in requests])
