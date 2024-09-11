@@ -80,11 +80,11 @@ def generate_downsampled_requests(num_adapters, alpha, req_rate, duration, input
     requests = []
     for i, row in trace.iterrows():
         tic = row["TIMESTAMP"]
-        input_len = row["ContextTokens"]
-        output_len = row["GeneratedTokens"]
+        input_len = int(row["ContextTokens"])
+        output_len = int(row["GeneratedTokens"])
         
         request = Request(i, adapter_dirs[adapter_id[i]][0], adapter_dirs[adapter_id[i]][1],
-                                dummy_prompt(input_len), input_len, output_len, tic.total_seconds())
+                                dummy_prompt(input_len), input_len, output_len, tic)
         
         requests.append(request)
         
@@ -119,7 +119,6 @@ def rescale_request_time(trace, duration):
     interval_end = trace["TIMESTAMP"][len(trace) - 1]
     
     interval = interval_end - interval_start
-    for idx, request in trace.iterrows():
-        trace["TIMESTAMP"][idx] = (request["TIMESTAMP"] - interval_start) / interval * duration
+    trace["TIMESTAMP"] = (trace["TIMESTAMP"] - interval_start) / interval * duration
     
     return trace
