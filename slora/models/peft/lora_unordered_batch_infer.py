@@ -119,13 +119,18 @@ class LoraUnorderedBatchInfer:
         # print("\n\t<<Prefill>>")
         # print(f"\t\tbatch_size {batch_size}")
         
-        prefill_start_time = time.time()
-        predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
-        torch.cuda.synchronize()
-        prefill_end_time = time.time()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
         
-        # print(f"\t<Prefill end> --- time : {1000 * (prefill_end_time - prefill_start_time):0.8} ms -------------")
-        self.timeDict["total_time"] = 1000 * (prefill_end_time - prefill_start_time)
+        start_event.record()
+        predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
+        end_event.record()
+        end_event.synchronize()
+        
+        
+        # print(f"\t<Prefill end> --- time : {(prefill_end_time - prefill_start_time):0.8} ms -------------")
+        #self.timeDict["total_time"] = (prefill_end_time - prefill_start_time)
+        self.timeDict["total_time"] = start_event.elapsed_time(end_event)
         return predict_logics
 
 
@@ -172,8 +177,8 @@ class LoraUnorderedBatchInfer:
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
         torch.cuda.synchronize()
         decode_end_time = time.time()
-        # print(f"\t<Decode end> --- time : {1000 * (decode_end_time - decode_start_time):0.8} ms -------------")
-        self.timeDict["total_time"] = 1000 * (decode_end_time - decode_start_time)
+        # print(f"\t<Decode end> --- time : {(decode_end_time - decode_start_time):0.8} ms -------------")
+        self.timeDict["total_time"] = (decode_end_time - decode_start_time)
         return predict_logics
 
 
@@ -208,20 +213,28 @@ class LoraUnorderedBatchInfer:
     def _lora_context_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False):
         # print(f"\t\tLayer {layer_id}")
         
-        attention_start_time = time.time()
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        
+        start_event1.record()
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
-        attention_time = time.time() - attention_start_time
+        end_event1.record()
+        end_event1.synchronize()
+        attention_time = start_event1.elapsed_time(end_event1)
         
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
         
-        ffn_start = time.time()
+        start_event2.record()
         layer_infer._context_ffn(input_embs, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        ffn_time = time.time() - ffn_start
+        end_event2.record()
+        end_event2.synchronize()
+        ffn_time = start_event2.elapsed_time(end_event2)
         
-        self.timeDict["layers"][-1]["total_attention_time"] = 1000 * attention_time
-        self.timeDict["layers"][-1]["total_ffn_time"] = 1000 * ffn_time
+        self.timeDict["layers"][-1]["total_attention_time"] = attention_time
+        self.timeDict["layers"][-1]["total_ffn_time"] = ffn_time
         
         return input_embs
 
@@ -245,8 +258,8 @@ class LoraUnorderedBatchInfer:
         # mark_end("token_ffn")
         ffn_time = time.time() - ffn_start
         
-        self.timeDict["layers"][-1]["total_attention_time"] = 1000 * attention_time
-        self.timeDict["layers"][-1]["total_ffn_time"] = 1000 * ffn_time
+        self.timeDict["layers"][-1]["total_attention_time"] = attention_time
+        self.timeDict["layers"][-1]["total_ffn_time"] = ffn_time
         
         return input_embs
 
@@ -257,39 +270,62 @@ class LoraUnorderedBatchInfer:
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
 
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        start_event3 = torch.cuda.Event(enable_timing=True)
+        end_event3 = torch.cuda.Event(enable_timing=True)
+        start_event4 = torch.cuda.Event(enable_timing=True)
+        end_event4 = torch.cuda.Event(enable_timing=True)
+        start_event5 = torch.cuda.Event(enable_timing=True)
+        end_event5 = torch.cuda.Event(enable_timing=True)
+        start_event6 = torch.cuda.Event(enable_timing=True)
+        end_event6 = torch.cuda.Event(enable_timing=True)
+
         # layer normalization
-        attention_norm_start = time.time()
+        start_event1.record()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        attention_norm_time = time.time() - attention_norm_start
+        end_event1.record()
+        end_event1.synchronize()
+        precache_time = start_event1.elapsed_time(end_event1)
 
         # fetch k, v 현재로는 그냥 infer_state.prefill_key_buffer, infer_state.prefill_value_buffer을 반환하는걸로 보임 (decode시 다름)
-        precache_start = time.time()
+        start_event2.record()
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
-        torch.cuda.synchronize()
-        precache_time = time.time() - precache_start
+        end_event2.record()
+        end_event2.synchronize()
+        attention_norm_time = start_event2.elapsed_time(end_event2)
 
         # gen new q, k, v (batch different adapters)
-        get_qkv_start = time.time()
+        start_event3.record()
         q = self._lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute)
-        get_qkv_time = time.time() - get_qkv_start
-
+        end_event3.record()
+        end_event3.synchronize()
+        get_qkv_time = start_event3.elapsed_time(end_event3)
+        
         input1 = None
 
-        postcache_start = time.time()
+        start_event4.record()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        postcache_time = time.time() - postcache_start
-
+        end_event4.record()
+        end_event4.synchronize()
+        postcache_time = start_event4.elapsed_time(end_event4)
+        
         # compute attention
-        attention_start = time.time()
+        start_event5.record()
         o = layer_infer._context_attention_kernel(q, cache_k, cache_v, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        attention_time = time.time() - attention_start
+        end_event5.record()
+        end_event5.synchronize()
+        attention_time = start_event5.elapsed_time(end_event5)
         q = None
-        get_o_start = time.time()
+        
+        start_event6.record()
         o = self._lora_get_o(layer_id, o, infer_state, no_lora_compute)
-        get_o_time = time.time() - get_o_start
+        end_event6.record()
+        end_event6.synchronize()
+        get_o_time = start_event6.elapsed_time(end_event6)
+        
         # if self.world_size_ > 1:
         #     dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
         # residual
@@ -297,15 +333,15 @@ class LoraUnorderedBatchInfer:
         
         attention_time_dict = {}
         attention_time_dict["layer"]        = layer_id
-        attention_time_dict["atten_norm"]   = 1000 * attention_norm_time
-        attention_time_dict["precache"]     = 1000 * precache_time
+        attention_time_dict["atten_norm"]   = attention_norm_time
+        attention_time_dict["precache"]     = precache_time
         attention_time_dict["get_qkv"]      = {}
-        attention_time_dict["get_qkv"]["total_time"] = 1000 * get_qkv_time
+        attention_time_dict["get_qkv"]["total_time"] = get_qkv_time
         attention_time_dict["get_qkv"]["detail"] = self.get_qkv_timeDict
-        attention_time_dict["postcache"]    = 1000 * postcache_time
-        attention_time_dict["atten_calc"]    = 1000 * attention_time
+        attention_time_dict["postcache"]    = postcache_time
+        attention_time_dict["atten_calc"]    = attention_time
         attention_time_dict["get_o"]        = {}
-        attention_time_dict["get_o"]["total_time"] = 1000 * get_o_time
+        attention_time_dict["get_o"]["total_time"] = get_o_time
         attention_time_dict["get_o"]["detail"] = self.get_o_timeDict
         
         self.timeDict["layers"].append(attention_time_dict)
@@ -318,40 +354,63 @@ class LoraUnorderedBatchInfer:
     def _lora_token_attention(self, layer_id, input_embs, infer_state, no_lora_compute=False, no_lora_copy=False):
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
+        
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        start_event3 = torch.cuda.Event(enable_timing=True)
+        end_event3 = torch.cuda.Event(enable_timing=True)
+        start_event4 = torch.cuda.Event(enable_timing=True)
+        end_event4 = torch.cuda.Event(enable_timing=True)
+        start_event5 = torch.cuda.Event(enable_timing=True)
+        end_event5 = torch.cuda.Event(enable_timing=True)
+        start_event6 = torch.cuda.Event(enable_timing=True)
+        end_event6 = torch.cuda.Event(enable_timing=True)
+        
         # layer normalization
-        attention_norm_start = time.time()
+        start_event1.record()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        attention_norm_time = time.time() - attention_norm_start
+        end_event1.record()
+        end_event1.synchronize()
+        attention_norm_time = start_event1.elapsed_time(end_event1)
         
         # fetch k, v
-        precache_start = time.time()
+        start_event2.record()
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
-        torch.cuda.synchronize()
-        precache_time = time.time() - precache_start
+        end_event2.record()
+        end_event2.synchronize()
+        precache_time = start_event1.elapsed_time(end_event2)
         
         # gen new q, k, v (batch different adapters)
-        get_qkv_start = time.time()
+        start_event3.record()
         q = self._batch_lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute, no_lora_copy)
-        get_qkv_time = time.time() - get_qkv_start
+        end_event3.record()
+        end_event3.synchronize()
+        get_qkv_time = start_event3.elapsed_time(end_event3)
         
         input1 = None
         
-        postcache_start = time.time()
+        start_event4.record()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        postcache_time = time.time() - postcache_start
+        end_event4.record()
+        end_event4.synchronize()
+        postcache_time = start_event4.elapsed_time(end_event4)
         
         # compute attention
-        attention_start = time.time()
+        start_event5.record()
         o = layer_infer._token_attention_kernel(q, infer_state, layer_weight)
-        torch.cuda.synchronize()
-        attention_time = time.time() - attention_start
+        end_event5.record()
+        end_event5.synchronize()
+        attention_time = start_event5.elapsed_time(end_event5)
+        
         q = None
         
-        get_o_start = time.time()
+        start_event6.record()
         o = self._batch_lora_get_o(layer_id, o, infer_state, no_lora_compute)
-        get_o_time = time.time() - get_o_start
+        end_event6.record()
+        end_event6.synchronize()
+        get_o_time = start_event6.elapsed_time(end_event6)
         
         # if self.world_size_ > 1:
         #     dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
@@ -359,15 +418,15 @@ class LoraUnorderedBatchInfer:
         
         attention_time_dict = {}
         attention_time_dict["layer"]        = layer_id
-        attention_time_dict["atten_norm"]   = 1000 * attention_norm_time
-        attention_time_dict["precache"]     = 1000 * precache_time
+        attention_time_dict["atten_norm"]   = attention_norm_time
+        attention_time_dict["precache"]     = precache_time
         attention_time_dict["get_qkv"]      = {}
-        attention_time_dict["get_qkv"]["total_time"] = 1000 * get_qkv_time
+        attention_time_dict["get_qkv"]["total_time"] = get_qkv_time
         attention_time_dict["get_qkv"]["detail"] = self.get_qkv_timeDict
-        attention_time_dict["postcache"]    = 1000 * postcache_time
-        attention_time_dict["atten_calc"]    = 1000 * attention_time
+        attention_time_dict["postcache"]    = postcache_time
+        attention_time_dict["atten_calc"]    = attention_time
         attention_time_dict["get_o"]        = {}
-        attention_time_dict["get_o"]["total_time"] = 1000 * get_o_time
+        attention_time_dict["get_o"]["total_time"] = get_o_time
         attention_time_dict["get_o"]["detail"] = self.get_o_timeDict
         
         self.timeDict["layers"].append(attention_time_dict)
@@ -381,12 +440,30 @@ class LoraUnorderedBatchInfer:
         base_layer_weight = base_model.trans_layers_weight[layer_id]
         base_layer_infer = base_model.layers_infer[layer_id]
 
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        start_event3 = torch.cuda.Event(enable_timing=True)
+        end_event3 = torch.cuda.Event(enable_timing=True)
+        start_event4 = torch.cuda.Event(enable_timing=True)
+        end_event4 = torch.cuda.Event(enable_timing=True)
+        start_event5 = torch.cuda.Event(enable_timing=True)
+        end_event5 = torch.cuda.Event(enable_timing=True)
+        start_event6 = torch.cuda.Event(enable_timing=True)
+        end_event6 = torch.cuda.Event(enable_timing=True)
+        start_event7 = torch.cuda.Event(enable_timing=True)
+        end_event7 = torch.cuda.Event(enable_timing=True)
+        start_event8 = torch.cuda.Event(enable_timing=True)
+        end_event8 = torch.cuda.Event(enable_timing=True)
+
         # q (bs, H)
-        base_start_Q = time.time()
+        start_event1.record()
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
-        torch.cuda.synchronize()
-        base_end_Q = time.time()
-        base_time_Q = base_end_Q - base_start_Q
+        end_event1.record()
+        end_event1.synchronize()
+        base_time_Q = start_event1.elapsed_time(end_event1)
+
         # print(f"\t\tBase_layer embed_dim : {base_layer_infer.embed_dim_}")
         # print(f"\t\tQ's size : {q.shape}, is on cuda? {q.is_cuda}")
         # @TODO: fix me, filter requests querying only base model
@@ -394,7 +471,7 @@ class LoraUnorderedBatchInfer:
 
         if not no_lora_compute:
             # mark_start("get_q")
-            lora_start_Q = time.time()
+            start_event2.record()
             delta_qA = self.delta[0]
             dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                           self.key_buffer[layer_id], 
@@ -405,26 +482,28 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 0, self.infer_adapter.a_scaling)
             # delta_qA = None
             # mark_end("get_q")
-            torch.cuda.synchronize()
-            lora_end_Q = time.time()
-            lora_time_Q = lora_end_Q - lora_start_Q
-
-        rotary_emb_q_start = time.time()
+            end_event2.record()
+            end_event2.synchronize()
+            lora_time_Q = start_event2.elapsed_time(end_event2)
+            
+        start_event3.record()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                           infer_state.position_cos, infer_state.position_sin)
-        rotary_emb_q_time = time.time() - rotary_emb_q_start
+        end_event3.record()
+        end_event3.synchronize()
+        rotary_emb_q_time = start_event3.elapsed_time(end_event3)
 
         # k (bs, H)
-        base_start_K = time.time()
+        start_event4.record()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
                  out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
-        torch.cuda.synchronize()
-        base_end_K = time.time()
-        base_time_K = base_end_K - base_start_K
+        end_event4.record()
+        end_event4.synchronize()
+        base_time_K = start_event4.elapsed_time(end_event4)
 
         if not no_lora_compute:
             # mark_start("get_k")
-            lora_start_K = time.time()
+            start_event5.record()
             delta_kA = self.delta[1]
             lora_start_Q = time.time()
             
@@ -438,25 +517,27 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 1, self.infer_adapter.a_scaling)
             # delta_kA = None
             # mark_end("get_k")
-            torch.cuda.synchronize()
-            lora_end_K = time.time()
-            lora_time_K = lora_end_K - lora_start_K
-
-        rotary_emb_k_start = time.time()
+            end_event5.record()
+            end_event5.synchronize()
+            lora_time_K = start_event5.elapsed_time(end_event5)
+            
+        start_event6.record()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
-        rotary_emb_k_time = time.time() - rotary_emb_k_start
+        end_event6.record()
+        end_event6.synchronize()
+        rotary_emb_k_time = start_event6.elapsed_time(end_event6)
 
         # v (bs, H)
-        base_start_V = time.time()
+        start_event7.record()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
                  out=cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
-        torch.cuda.synchronize()
-        base_end_V = time.time()
-        base_time_V = base_end_V - base_start_V
-        
+        end_event7.record()
+        end_event7.synchronize()
+        base_time_V = start_event7.elapsed_time(end_event7)
+                
         if not no_lora_compute:
             # mark_start("get_v")
-            lora_start_V = time.time()
+            start_event8.record()
             delta_vA = self.delta[2]
             dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                           self.key_buffer[layer_id], 
@@ -468,25 +549,26 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 2, self.infer_adapter.a_scaling)
             # delta_vA = None
             # mark_end("get_v")
-            torch.cuda.synchronize()
-            lora_end_V = time.time()
-            lora_time_V = lora_end_V - lora_start_V
+            end_event8.record()
+            end_event8.synchronize()
+            lora_time_V = start_event8.elapsed_time(end_event8)
+            
         #printstart = time.time()
-        # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
-        # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
-        # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        # print(f"\t\tBase Q : {base_time_Q:.8f} ms | LoRA Q : {lora_time_Q:.8f} ms")
+        # print(f"\t\tBase K : {base_time_K:.8f} ms | LoRA K : {lora_time_K:.8f} ms")
+        # print(f"\t\tBase V : {base_time_V:.8f} ms | LoRA V : {lora_time_V:.8f} ms")
         self.get_qkv_timeDict = {}
-        self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
-        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
-        self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
-        self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
-        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
-        self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
-        self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
-        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
+        self.get_qkv_timeDict["q_base"] = base_time_Q
+        self.get_qkv_timeDict["q_lora"] = lora_time_Q
+        self.get_qkv_timeDict["q_rotary_emb"] = rotary_emb_q_time
+        self.get_qkv_timeDict["k_base"] = base_time_K
+        self.get_qkv_timeDict["k_lora"] = lora_time_K
+        self.get_qkv_timeDict["k_rotary_emb"] = rotary_emb_k_time
+        self.get_qkv_timeDict["v_base"] = base_time_V
+        self.get_qkv_timeDict["v_lora"] = lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
-        #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
+        #print(f"\t\tprinttime : {printtime:.8f} ms | LoRA V : {printtime:.8f} ms")
         
         return q        
 
@@ -497,12 +579,29 @@ class LoraUnorderedBatchInfer:
         base_layer_infer = base_model.layers_infer[layer_id]
         # q (S, H)
         
-        base_start_Q = time.time()
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        start_event3 = torch.cuda.Event(enable_timing=True)
+        end_event3 = torch.cuda.Event(enable_timing=True)
+        start_event4 = torch.cuda.Event(enable_timing=True)
+        end_event4 = torch.cuda.Event(enable_timing=True)
+        start_event5 = torch.cuda.Event(enable_timing=True)
+        end_event5 = torch.cuda.Event(enable_timing=True)
+        start_event6 = torch.cuda.Event(enable_timing=True)
+        end_event6 = torch.cuda.Event(enable_timing=True)
+        start_event7 = torch.cuda.Event(enable_timing=True)
+        end_event7 = torch.cuda.Event(enable_timing=True)
+        start_event8 = torch.cuda.Event(enable_timing=True)
+        end_event8 = torch.cuda.Event(enable_timing=True)
+        
+        start_event1.record()
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_),
                      base_layer_weight.q_weight_)
-        torch.cuda.synchronize()
-        base_end_Q = time.time()
-        base_time_Q = base_end_Q - base_start_Q
+        end_event1.record()
+        end_event1.synchronize()
+        base_time_Q = start_event1.elapsed_time(end_event1)
         
         assert(len(q)==len(self.batch_req_bins))
         # q = q_base + input * A * B * scaling
@@ -510,7 +609,7 @@ class LoraUnorderedBatchInfer:
         if not no_lora_compute:
             # fix me: @TODO we need to filter out requests querying only base model
             delta_qA = self.delta[0]
-            lora_start_Q = time.time()
+            start_event2.record()
             if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
             # if 1 == 0:
                 lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
@@ -536,27 +635,29 @@ class LoraUnorderedBatchInfer:
                 
                 # Batch gather matrix vector multiplication
             # delta_qA = None
-            torch.cuda.synchronize()
-            lora_end_Q = time.time()
-            lora_time_Q = lora_end_Q - lora_start_Q
-        
-        rotary_emb_q_start = time.time()
+            end_event2.record()
+            end_event2.synchronize()
+            lora_time_Q = start_event2.elapsed_time(end_event2)
+            
+        start_event3.record()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                        infer_state.position_cos, infer_state.position_sin)
-        torch.cuda.synchronize()
-        rotary_emb_q_time = time.time() - rotary_emb_q_start
+        end_event3.record()
+        end_event3.synchronize()
+        rotary_emb_q_time = start_event3.elapsed_time(end_event3)
+
 
         # k (S, H)
-        base_start_K = time.time()
+        start_event4.record()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
                  out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
-        torch.cuda.synchronize()
-        base_end_K = time.time()
-        base_time_K = base_end_K - base_start_K
+        end_event4.record()
+        end_event4.synchronize()
+        base_time_K = start_event4.elapsed_time(end_event4)
         
         if not no_lora_compute:
             delta_kA = self.delta[1]
-            lora_start_K = time.time()
+            start_event5.record()
             if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
             # if 1 == 0:
                 lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
@@ -582,27 +683,27 @@ class LoraUnorderedBatchInfer:
                             self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                             self.batch_req_bins, 1, self.infer_adapter.a_scaling)
             # delta_kA = None
+            end_event5.record()
+            end_event5.synchronize()
+            lora_time_K = start_event5.elapsed_time(end_event5)
             
-            torch.cuda.synchronize()
-            lora_end_K = time.time()
-            lora_time_K = lora_end_K - lora_start_K
-
-        rotary_emb_k_start = time.time()
+        start_event6.record()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
-        torch.cuda.synchronize()
-        rotary_emb_k_time = time.time() - rotary_emb_k_start
+        end_event6.record()
+        end_event6.synchronize()
+        rotary_emb_k_time = start_event6.elapsed_time(end_event6)
 
         # v (S, H)
-        base_start_V = time.time()
+        start_event7.record()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
                  out=cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
-        torch.cuda.synchronize()
-        base_end_V = time.time()
-        base_time_V = base_end_V - base_start_V
+        end_event7.record()
+        end_event7.synchronize()
+        base_time_V = start_event7.elapsed_time(end_event7)
         
         if not no_lora_compute:
             delta_vA = self.delta[2]
-            lora_start_V = time.time()
+            start_event8.record()
             if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64 and len(infer_state.b_seq_len) >= 2:
             # if 1 ==0:
                 lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
@@ -628,28 +729,27 @@ class LoraUnorderedBatchInfer:
                             self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                             self.batch_req_bins, 2, self.infer_adapter.a_scaling)
             # delta_vA = None
+            end_event8.record()
+            end_event8.synchronize()
+            lora_time_V = start_event8.elapsed_time(end_event8)
             
-            torch.cuda.synchronize()
-            lora_end_V = time.time()
-            lora_time_V = lora_end_V - lora_start_V
-            
-        #printstart = time.time()
-        # print(f"\t\tBase Q : {1000 * base_time_Q:.8f} ms | LoRA Q : {1000 * lora_time_Q:.8f} ms")
-        # print(f"\t\tBase K : {1000 * base_time_K:.8f} ms | LoRA K : {1000 * lora_time_K:.8f} ms")
-        # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
+        # printstart = time.time()
+        # print(f"\t\tBase Q : {base_time_Q:.8f} ms | LoRA Q : {lora_time_Q:.8f} ms")
+        # print(f"\t\tBase K : {base_time_K:.8f} ms | LoRA K : {lora_time_K:.8f} ms")
+        # print(f"\t\tBase V : {base_time_V:.8f} ms | LoRA V : {lora_time_V:.8f} ms")
         
         self.get_qkv_timeDict = {}
-        self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
-        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
-        self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
-        self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
-        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
-        self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
-        self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
-        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
+        self.get_qkv_timeDict["q_base"] = base_time_Q
+        self.get_qkv_timeDict["q_lora"] = lora_time_Q
+        self.get_qkv_timeDict["q_rotary_emb"] = rotary_emb_q_time
+        self.get_qkv_timeDict["k_base"] = base_time_K
+        self.get_qkv_timeDict["k_lora"] = lora_time_K
+        self.get_qkv_timeDict["k_rotary_emb"] = rotary_emb_k_time
+        self.get_qkv_timeDict["v_base"] = base_time_V
+        self.get_qkv_timeDict["v_lora"] = lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
-        #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
+        #print(f"\t\tprinttime : {printtime:.8f} ms | LoRA V : {printtime:.8f} ms")
         return q
     
 
@@ -659,16 +759,22 @@ class LoraUnorderedBatchInfer:
         base_layer_weight = base_model.trans_layers_weight[layer_id]
         base_layer_infer = base_model.layers_infer[layer_id]
         
-        base_start_O = time.time()
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+        
+        start_event1.record()
         o = torch.mm(input.view(-1, base_layer_infer.embed_dim_),
                           base_layer_weight.o_weight_)
-        base_end_O = time.time()
-        base_time_O = base_end_O - base_start_O
+        end_event1.record()
+        end_event1.synchronize()
+        base_time_O = start_event1.elapsed_time(end_event1)
         
         if not no_lora_compute:
             # mark_start("get_o")
             delta_oA = self.delta[0]
-            lora_start_O = time.time()
+            start_event2.record()
             dispatch_bgmv(delta_oA, input.view(-1, base_layer_infer.embed_dim_), 
                           self.key_buffer[layer_id], 
                           self.infer_adapter.a_start, self.infer_adapter.a_len, 
@@ -678,14 +784,15 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 3, self.infer_adapter.a_scaling)
             # delta_oA = None
             # mark_end("get_o")
-            torch.cuda.synchronize()
-            lora_end_O = time.time()
-            lora_time_O = lora_end_O - lora_start_O
-        # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
+            end_event2.record()
+            end_event2.synchronize()
+            lora_time_O = start_event2.elapsed_time(end_event2)
+
+        # print(f"\t\tBase O : {base_time_O:.8f} ms | LoRA O : {lora_time_O:.8f} ms")
         
         self.get_o_timeDict = {}
-        self.get_o_timeDict["o_base"] = 1000 * base_time_O
-        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
+        self.get_o_timeDict["o_base"] = base_time_O
+        self.get_o_timeDict["o_lora"] = lora_time_O
         return o
 
 
@@ -694,16 +801,21 @@ class LoraUnorderedBatchInfer:
         base_layer_weight = base_model.trans_layers_weight[layer_id]
         base_layer_infer = base_model.layers_infer[layer_id]
 
-        base_start_O = time.time()
+        start_event1 = torch.cuda.Event(enable_timing=True)
+        end_event1 = torch.cuda.Event(enable_timing=True)
+        start_event2 = torch.cuda.Event(enable_timing=True)
+        end_event2 = torch.cuda.Event(enable_timing=True)
+
+        start_event1.record()
         o = torch.mm(input.view(-1, base_layer_infer.embed_dim_),
                           base_layer_weight.o_weight_)
-        torch.cuda.synchronize()
-        base_end_O = time.time()
-        base_time_O = base_end_O - base_start_O
+        end_event1.record()
+        end_event1.synchronize()
+        base_time_O = start_event1.elapsed_time(end_event1)
         
         if not no_lora_compute:
             delta_oA = self.delta[0]
-            lora_start_O = time.time()
+            start_event2.record()
             if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
             # if 1 == 0:
                 lora_get_qkvo_fwd_shrink(input.view(-1, base_layer_infer.embed_dim_), 
@@ -727,13 +839,14 @@ class LoraUnorderedBatchInfer:
                             self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                             self.batch_req_bins, 3, self.infer_adapter.a_scaling)
             # delta_oA = None
-            torch.cuda.synchronize()
-            lora_end_O = time.time()
-            lora_time_O = lora_end_O - lora_start_O
-        # print(f"\t\tBase O : {1000 * base_time_O:.8f} ms | LoRA O : {1000 * lora_time_O:.8f} ms")
+            end_event2.record()
+            end_event2.synchronize()
+            lora_time_O = start_event2.elapsed_time(end_event2)
+            
+        # print(f"\t\tBase O : {base_time_O:.8f} ms | LoRA O : {lora_time_O:.8f} ms")
         
         self.get_o_timeDict = {}
-        self.get_o_timeDict["o_base"] = 1000 * base_time_O
-        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
+        self.get_o_timeDict["o_base"] = base_time_O
+        self.get_o_timeDict["o_lora"] = lora_time_O
         return o
 
