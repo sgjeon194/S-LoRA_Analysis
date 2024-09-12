@@ -93,7 +93,7 @@ def generate_downsampled_requests(num_adapters, alpha, req_rate, duration, input
 
 def downsample(trace, req_rate, duration, input_range, output_range):
     request_num = int(req_rate * duration)
-    select_ratio = 8
+    select_ratio = 16
     selected_indicies = np.random.choice(len(trace), request_num * select_ratio, replace=False)
     selected_indicies.sort()
     # downsampled_trace = [trace.iloc[idx] for idx in selected_indicies]
