@@ -278,6 +278,16 @@ debug_suite = {
         output_range = [[8, 512]],
     ),
 
+    "custom": BenchmarkConfig(
+        num_adapters = [100],
+        alpha = [1],
+        req_rate = [2],
+        cv = [1],
+        duration = [5 * 60],
+        input_range = [[8, 512]],
+        output_range = [[8, 512]],
+    ),
+
     "no-swap": BenchmarkConfig(
         num_adapters = [1],
         alpha = [1],
