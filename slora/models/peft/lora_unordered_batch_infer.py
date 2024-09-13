@@ -206,18 +206,26 @@ class LoraUnorderedBatchInfer:
     def _lora_context_forward(self, layer_id, input_embs, infer_state, no_lora_compute=False):
         # print(f"\t\tLayer {layer_id}")
         
-        attention_start_time = time.time()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        
+        start_event.record()
+        # atten_start = time.time()
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
-        attention_time = time.time() - attention_start_time
+        # atten_time = time.time() - atten_start
+        end_event.record()
         
         layer_weight = self.base_model.trans_layers_weight[layer_id]
         layer_infer = self.base_model.layers_infer[layer_id]
+        
+        end_event.synchronize()
         
         ffn_start = time.time()
         layer_infer._context_ffn(input_embs, infer_state, layer_weight)
         ffn_time = time.time() - ffn_start
         
-        self.timeDict["layers"][-1]["total_attention_time"] = 1000 * attention_time
+        self.timeDict["layers"][-1]["total_attention_time"] = start_event.elapsed_time(end_event)
+        #self.timeDict["layers"][-1]["total_attention_time"] = 1000 * atten_time
         self.timeDict["layers"][-1]["total_ffn_time"] = 1000 * ffn_time
         
         return input_embs

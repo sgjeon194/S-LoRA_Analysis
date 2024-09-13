@@ -84,7 +84,7 @@ class HttpServerManager:
                     del self.req_id_to_out_inf[request_id]
                 except:
                     pass
-                break            
+                break
         
         return
 
