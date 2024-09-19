@@ -281,9 +281,9 @@ debug_suite = {
     "custom": BenchmarkConfig(
         num_adapters = [100],
         alpha = [1],
-        req_rate = [2], # Change this
+        req_rate = [10], # Change this ###################################################
         cv = [1],
-        duration = [600], # Change this
+        duration = [120], # Change this #################################################
         input_range = [[8, 512]],
         output_range = [[8, 512]],
     ),

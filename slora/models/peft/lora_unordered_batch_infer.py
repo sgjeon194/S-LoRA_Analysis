@@ -467,13 +467,16 @@ class LoraUnorderedBatchInfer:
         # print(f"\t\tBase V : {1000 * base_time_V:.8f} ms | LoRA V : {1000 * lora_time_V:.8f} ms")
         self.get_qkv_timeDict = {}
         self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
-        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
+        if not no_lora_compute:
+            self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
         self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
         self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
-        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
+        if not no_lora_compute:
+            self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
         self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
         self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
-        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
+        if not no_lora_compute:
+            self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -620,13 +623,16 @@ class LoraUnorderedBatchInfer:
         
         self.get_qkv_timeDict = {}
         self.get_qkv_timeDict["q_base"] = 1000 * base_time_Q
-        self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
+        if not no_lora_compute:
+            self.get_qkv_timeDict["q_lora"] = 1000 * lora_time_Q
         self.get_qkv_timeDict["q_rotary_emb"] = 1000 * rotary_emb_q_time
         self.get_qkv_timeDict["k_base"] = 1000 * base_time_K
-        self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
+        if not no_lora_compute:
+            self.get_qkv_timeDict["k_lora"] = 1000 * lora_time_K
         self.get_qkv_timeDict["k_rotary_emb"] = 1000 * rotary_emb_k_time
         self.get_qkv_timeDict["v_base"] = 1000 * base_time_V
-        self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
+        if not no_lora_compute:
+            self.get_qkv_timeDict["v_lora"] = 1000 * lora_time_V
         #printend = time.time()
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {1000 * printtime:.8f} ms | LoRA V : {1000 * printtime:.8f} ms")
@@ -664,7 +670,8 @@ class LoraUnorderedBatchInfer:
         
         self.get_o_timeDict = {}
         self.get_o_timeDict["o_base"] = 1000 * base_time_O
-        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
+        if not no_lora_compute:
+            self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
         return o
 
 
@@ -711,6 +718,7 @@ class LoraUnorderedBatchInfer:
         
         self.get_o_timeDict = {}
         self.get_o_timeDict["o_base"] = 1000 * base_time_O
-        self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
+        if not no_lora_compute:
+            self.get_o_timeDict["o_lora"] = 1000 * lora_time_O
         return o
 
