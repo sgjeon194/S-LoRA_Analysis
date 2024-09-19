@@ -139,7 +139,7 @@ def run_exp(server, config, seed=42):
     #                              input_range, output_range, adapter_dirs,
     #                              seed=seed, id=1)
 
-    requests1 = requests1[0:1]
+    #requests1 = requests1[0:1]
 
     # benchmark
     
