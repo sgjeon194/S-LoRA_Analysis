@@ -33,7 +33,7 @@ class LoraUnorderedBatchInfer:
                 self.key_buffer = infer_adapter.mem_manager.key_buffer
                 self.value_buffer = infer_adapter.mem_manager.value_buffer
             for i, adapter in enumerate(adapters):
-                # FIX ME @TODO: currently not supporting adapter is Non e
+                # FIX ME @TODO: currently not supporting adapter is None
                 if adapter is None: continue
                 idx = infer_adapter.adapter_dirs.index(adapter.lora_dir)
                 self.req_bins[i] = idx
@@ -175,7 +175,6 @@ class LoraUnorderedBatchInfer:
         # print(f"\t\tbatch_size {batch_size}")
         decode_start_time = time.time()
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
-        torch.cuda.synchronize()
         decode_end_time = time.time()
         # print(f"\t<Decode end> --- time : {(decode_end_time - decode_start_time):0.8} ms -------------")
         self.timeDict["total_time"] = (decode_end_time - decode_start_time)
@@ -254,7 +253,6 @@ class LoraUnorderedBatchInfer:
         # mark_start("token_ffn")
         ffn_start = time.time()
         layer_infer._token_ffn(input_embs, infer_state, layer_weight)
-        torch.cuda.synchronize()
         # mark_end("token_ffn")
         ffn_time = time.time() - ffn_start
         

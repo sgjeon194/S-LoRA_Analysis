@@ -11,4 +11,6 @@ dist
 *.jsonl
 *.pdf
 *.txt
+*.nsys-rep
+*.sqlite
 Logs/.ipynb_checkpoints
