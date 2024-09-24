@@ -102,6 +102,9 @@ if __name__ == "__main__":
             os.wait()
 
         sys.exit(0)
-
-    # print(cmd)
+    
+    # cmd_args = cmd.split(" ")
+    # formatted_list = ', '.join(f'"{item}"' for item in cmd_args)
+    # print(f'[{formatted_list}]')
+    
     os.system(cmd)
