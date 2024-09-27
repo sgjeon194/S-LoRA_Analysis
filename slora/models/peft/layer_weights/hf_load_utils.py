@@ -10,7 +10,7 @@ def load_hf_weights(data_type, weight_dir, transformer_layer_list=None,
     data_type = torch.float16 if data_type == 'fp16' else torch.float32
     if transformer_layer_list is not None:
         assert transformer_layer_list[0].data_type_ == data_type, "type is not right"
-
+    dummy = True
     if dummy:
         for layer in transformer_layer_list:
             layer.load_hf_weights(None, swap=swap, dummy=dummy)

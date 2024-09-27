@@ -304,6 +304,7 @@ def print_mem_stats(args):
     tot_lora_size = 0
     for lora_dir in args.lora_dirs:
         lora_name = lora_dir.split("/")[-1]
+        args.dummy = True
         if args.dummy:
             fake_model = LoRAProphet(lora_name, model_name)
             try:
@@ -363,6 +364,7 @@ def main():
                         help="the adapter weight dirs associate with base model dir")
     parser.add_argument("--fair-weights", type=int, default=[], action="append")
     parser.add_argument("--dummy", action="store_true")
+    #parser.add_argument("--dummy", default=True)
     parser.add_argument("--swap", action="store_true")
     parser.add_argument("--pool-size-lora", type=int, default=0)
     parser.add_argument("--prefetch", action="store_true")
