@@ -278,7 +278,7 @@ class ModelRpcServer(rpyc.Service):
                 adapters = [self.adapters[self.adapter_id[adapter_dir]] for adapter_dir in compressed_dirs]
                 engine = LoraBmmInfer(self.model, adapters, adapter_sep)
             else:
-                engine = LoraUnorderedBatchInfer(self.model, adapters, infer_adapter=self.infer_adapter)
+                engine = LoraUnorderedBatchInfer(self.model, adapters, self.input_params.use_sync, infer_adapter=self.infer_adapter)
             kwargs["no_lora_compute"] = self.input_params.no_lora_compute
             # kwargs["no_lora_copy"] = self.input_params.no_lora_copy 
 

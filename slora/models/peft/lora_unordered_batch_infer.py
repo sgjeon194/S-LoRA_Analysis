@@ -16,7 +16,7 @@ import time
 
 class LoraUnorderedBatchInfer:
 
-    def __init__(self, base_model, adapters, infer_adapter=None):
+    def __init__(self, base_model, adapters, use_sync=False, infer_adapter=None):
         self.base_model = base_model
 
         lora_layer_dim = [adapter.r if adapter is not None else 0 for adapter in adapters]
@@ -39,6 +39,7 @@ class LoraUnorderedBatchInfer:
                 self.req_bins[i] = idx
         
         self.kv_embed_dim = base_model.tp_k_head_num_ * base_model.head_dim_
+        self.use_sync = use_sync
         self.timeDict = {}
     
     @torch.no_grad()
@@ -125,7 +126,8 @@ class LoraUnorderedBatchInfer:
         start_event.record()
         predict_logics = self._context_forward(input_ids, infer_state, no_lora_compute)
         end_event.record()
-        end_event.synchronize()
+        if self.use_sync:
+            end_event.synchronize()
         
         
         # print(f"\t<Prefill end> --- time : {(prefill_end_time - prefill_start_time):0.8} ms -------------")
@@ -220,7 +222,8 @@ class LoraUnorderedBatchInfer:
         start_event1.record()
         self._lora_context_attention(layer_id, input_embs, infer_state, no_lora_compute)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         attention_time = start_event1.elapsed_time(end_event1)
         
         layer_weight = self.base_model.trans_layers_weight[layer_id]
@@ -229,7 +232,8 @@ class LoraUnorderedBatchInfer:
         start_event2.record()
         layer_infer._context_ffn(input_embs, infer_state, layer_weight)
         end_event2.record()
-        end_event2.synchronize()
+        if self.use_sync:
+            end_event2.synchronize()
         ffn_time = start_event2.elapsed_time(end_event2)
         
         self.timeDict["layers"][-1]["total_attention_time"] = attention_time
@@ -285,7 +289,8 @@ class LoraUnorderedBatchInfer:
         start_event1.record()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         precache_time = start_event1.elapsed_time(end_event1)
 
         # fetch k, v 현재로는 그냥 infer_state.prefill_key_buffer, infer_state.prefill_value_buffer을 반환하는걸로 보임 (decode시 다름)
@@ -299,7 +304,8 @@ class LoraUnorderedBatchInfer:
         start_event3.record()
         q = self._lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute)
         end_event3.record()
-        end_event3.synchronize()
+        if self.use_sync:
+            end_event3.synchronize()
         get_qkv_time = start_event3.elapsed_time(end_event3)
         
         input1 = None
@@ -307,21 +313,24 @@ class LoraUnorderedBatchInfer:
         start_event4.record()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
         end_event4.record()
-        end_event4.synchronize()
+        if self.use_sync:
+            end_event4.synchronize()
         postcache_time = start_event4.elapsed_time(end_event4)
         
         # compute attention
         start_event5.record()
         o = layer_infer._context_attention_kernel(q, cache_k, cache_v, infer_state, layer_weight)
         end_event5.record()
-        end_event5.synchronize()
+        if self.use_sync:
+            end_event5.synchronize()
         attention_time = start_event5.elapsed_time(end_event5)
         q = None
         
         start_event6.record()
         o = self._lora_get_o(layer_id, o, infer_state, no_lora_compute)
         end_event6.record()
-        end_event6.synchronize()
+        if self.use_sync:
+            end_event6.synchronize()
         get_o_time = start_event6.elapsed_time(end_event6)
         
         # if self.world_size_ > 1:
@@ -370,21 +379,24 @@ class LoraUnorderedBatchInfer:
         start_event1.record()
         input1 = layer_infer._att_norm(input_embs, infer_state, layer_weight)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         attention_norm_time = start_event1.elapsed_time(end_event1)
         
         # fetch k, v
         start_event2.record()
         cache_k, cache_v = layer_infer._pre_cache_kv(infer_state, layer_weight)
         end_event2.record()
-        end_event2.synchronize()
+        if self.use_sync:
+            end_event2.synchronize()
         precache_time = start_event1.elapsed_time(end_event2)
         
         # gen new q, k, v (batch different adapters)
         start_event3.record()
         q = self._batch_lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute, no_lora_copy)
         end_event3.record()
-        end_event3.synchronize()
+        if self.use_sync:
+            end_event3.synchronize()
         get_qkv_time = start_event3.elapsed_time(end_event3)
         
         input1 = None
@@ -392,14 +404,16 @@ class LoraUnorderedBatchInfer:
         start_event4.record()
         layer_infer._post_cache_kv(cache_k, cache_v, infer_state, layer_weight)
         end_event4.record()
-        end_event4.synchronize()
+        if self.use_sync:
+            end_event4.synchronize()
         postcache_time = start_event4.elapsed_time(end_event4)
         
         # compute attention
         start_event5.record()
         o = layer_infer._token_attention_kernel(q, infer_state, layer_weight)
         end_event5.record()
-        end_event5.synchronize()
+        if self.use_sync:
+            end_event5.synchronize()
         attention_time = start_event5.elapsed_time(end_event5)
         
         q = None
@@ -407,7 +421,8 @@ class LoraUnorderedBatchInfer:
         start_event6.record()
         o = self._batch_lora_get_o(layer_id, o, infer_state, no_lora_compute)
         end_event6.record()
-        end_event6.synchronize()
+        if self.use_sync:
+            end_event6.synchronize()
         get_o_time = start_event6.elapsed_time(end_event6)
         
         # if self.world_size_ > 1:
@@ -459,7 +474,8 @@ class LoraUnorderedBatchInfer:
         start_event1.record()
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         base_time_Q = start_event1.elapsed_time(end_event1)
 
         # print(f"\t\tBase_layer embed_dim : {base_layer_infer.embed_dim_}")
@@ -481,14 +497,16 @@ class LoraUnorderedBatchInfer:
             # delta_qA = None
             # mark_end("get_q")
             end_event2.record()
-            end_event2.synchronize()
+            if self.use_sync:
+                end_event2.synchronize()
             lora_time_Q = start_event2.elapsed_time(end_event2)
             
         start_event3.record()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                           infer_state.position_cos, infer_state.position_sin)
         end_event3.record()
-        end_event3.synchronize()
+        if self.use_sync:
+            end_event3.synchronize()
         rotary_emb_q_time = start_event3.elapsed_time(end_event3)
 
         # k (bs, H)
@@ -496,7 +514,8 @@ class LoraUnorderedBatchInfer:
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
                  out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
         end_event4.record()
-        end_event4.synchronize()
+        if self.use_sync:
+            end_event4.synchronize()
         base_time_K = start_event4.elapsed_time(end_event4)
 
         if not no_lora_compute:
@@ -516,7 +535,8 @@ class LoraUnorderedBatchInfer:
             # delta_kA = None
             # mark_end("get_k")
             end_event5.record()
-            end_event5.synchronize()
+            if self.use_sync:
+                end_event5.synchronize()
             lora_time_K = start_event5.elapsed_time(end_event5)
             
         start_event6.record()
@@ -530,7 +550,8 @@ class LoraUnorderedBatchInfer:
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
                  out=cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
         end_event7.record()
-        end_event7.synchronize()
+        if self.use_sync:
+            end_event7.synchronize()
         base_time_V = start_event7.elapsed_time(end_event7)
                 
         if not no_lora_compute:
@@ -548,7 +569,8 @@ class LoraUnorderedBatchInfer:
             # delta_vA = None
             # mark_end("get_v")
             end_event8.record()
-            end_event8.synchronize()
+            if self.use_sync:
+                end_event8.synchronize()
             lora_time_V = start_event8.elapsed_time(end_event8)
             
         #printstart = time.time()
@@ -558,6 +580,13 @@ class LoraUnorderedBatchInfer:
         self.get_qkv_timeDict = {}
         self.get_qkv_timeDict["q_base"] = base_time_Q
         self.get_qkv_timeDict["q_lora"] = lora_time_Q
+        
+        self.get_qkv_timeDict["q_lora_adapter_start"] = self.infer_adapter.a_start.numel()
+        self.get_qkv_timeDict["q_lora_adapter_len"] = self.infer_adapter.a_len.numel()
+        self.get_qkv_timeDict["q_lora_adapter_loc"] = self.infer_adapter.a_loc.numel()
+        self.get_qkv_timeDict["q_lora_adapter_bins"] = self.req_bins.numel()
+        self.get_qkv_timeDict["q_lora_adapter_scaling"] = self.infer_adapter.a_scaling.numel()
+        
         self.get_qkv_timeDict["q_rotary_emb"] = rotary_emb_q_time
         self.get_qkv_timeDict["k_base"] = base_time_K
         self.get_qkv_timeDict["k_lora"] = lora_time_K
@@ -568,7 +597,7 @@ class LoraUnorderedBatchInfer:
         #printtime = printend - printstart
         #print(f"\t\tprinttime : {printtime:.8f} ms | LoRA V : {printtime:.8f} ms")
         
-        return q        
+        return q
 
 
     def _lora_get_qkv(self, layer_id, input_embs, cache_k, cache_v, infer_state, no_lora_compute=False)->torch.Tensor:
@@ -598,7 +627,8 @@ class LoraUnorderedBatchInfer:
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_),
                      base_layer_weight.q_weight_)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         base_time_Q = start_event1.elapsed_time(end_event1)
         
         assert(len(q)==len(self.batch_req_bins))
@@ -608,40 +638,42 @@ class LoraUnorderedBatchInfer:
             # fix me: @TODO we need to filter out requests querying only base model
             delta_qA = self.delta[0]
             start_event2.record()
-            if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
+            #if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
             # if 1 == 0:
-                lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
-                                         self.key_buffer[layer_id].view(-1, self.kv_embed_dim), 
-                                         delta_qA, self.infer_adapter.a_loc, self.infer_adapter.a_start, 
-                                         self.infer_adapter.a_len, infer_state.b_start_loc, 
-                                         infer_state.b_seq_len, self.req_bins, base_layer_infer.embed_dim_, 
-                                         0, self.max_lora_dim, self.max_b_seq_len)
-                lora_get_qkvo_fwd_expand(delta_qA, self.value_buffer[layer_id].view(-1, self.kv_embed_dim), 
-                                         q, self.infer_adapter.a_scaling, 
-                                         self.infer_adapter.a_loc, self.infer_adapter.a_start, 
-                                         self.infer_adapter.a_len, infer_state.b_start_loc, 
-                                         infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
-                                         0, self.max_lora_dim, self.max_b_seq_len)
-            else:
-                dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
-                            self.key_buffer[layer_id],
-                            self.infer_adapter.a_start, self.infer_adapter.a_len, 
-                            self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling)
-                dispatch_bgmv(q, delta_qA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
-                            self.infer_adapter.a_len, self.infer_adapter.a_loc, 
-                            self.batch_req_bins, 0, self.infer_adapter.a_scaling)
-                
+            # lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
+            #                             self.key_buffer[layer_id].view(-1, self.kv_embed_dim), 
+            #                             delta_qA, self.infer_adapter.a_loc, self.infer_adapter.a_start, 
+            #                             self.infer_adapter.a_len, infer_state.b_start_loc, 
+            #                             infer_state.b_seq_len, self.req_bins, base_layer_infer.embed_dim_, 
+            #                             0, self.max_lora_dim, self.max_b_seq_len)
+            # lora_get_qkvo_fwd_expand(delta_qA, self.value_buffer[layer_id].view(-1, self.kv_embed_dim), 
+            #                             q, self.infer_adapter.a_scaling, 
+            #                             self.infer_adapter.a_loc, self.infer_adapter.a_start, 
+            #                             self.infer_adapter.a_len, infer_state.b_start_loc, 
+            #                             infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
+            #                             0, self.max_lora_dim, self.max_b_seq_len)
+            # else:
+            dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                        self.key_buffer[layer_id],
+                        self.infer_adapter.a_start, self.infer_adapter.a_len, 
+                        self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling)
+            dispatch_bgmv(q, delta_qA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
+                        self.infer_adapter.a_len, self.infer_adapter.a_loc, 
+                        self.batch_req_bins, 0, self.infer_adapter.a_scaling)
+            
                 # Batch gather matrix vector multiplication
             # delta_qA = None
             end_event2.record()
-            end_event2.synchronize()
+            if self.use_sync:
+                end_event2.synchronize()
             lora_time_Q = start_event2.elapsed_time(end_event2)
             
         start_event3.record()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                        infer_state.position_cos, infer_state.position_sin)
         end_event3.record()
-        end_event3.synchronize()
+        if self.use_sync:
+            end_event3.synchronize()
         rotary_emb_q_time = start_event3.elapsed_time(end_event3)
 
 
@@ -650,7 +682,8 @@ class LoraUnorderedBatchInfer:
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
                  out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
         end_event4.record()
-        end_event4.synchronize()
+        if self.use_sync:
+            end_event4.synchronize()
         base_time_K = start_event4.elapsed_time(end_event4)
         
         if not no_lora_compute:
@@ -682,13 +715,15 @@ class LoraUnorderedBatchInfer:
                             self.batch_req_bins, 1, self.infer_adapter.a_scaling)
             # delta_kA = None
             end_event5.record()
-            end_event5.synchronize()
+            if self.use_sync:
+                end_event5.synchronize()
             lora_time_K = start_event5.elapsed_time(end_event5)
             
         start_event6.record()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
         end_event6.record()
-        end_event6.synchronize()
+        if self.use_sync:
+            end_event6.synchronize()
         rotary_emb_k_time = start_event6.elapsed_time(end_event6)
 
         # v (S, H)
@@ -696,7 +731,8 @@ class LoraUnorderedBatchInfer:
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
                  out=cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
         end_event7.record()
-        end_event7.synchronize()
+        if self.use_sync:
+            end_event7.synchronize()
         base_time_V = start_event7.elapsed_time(end_event7)
         
         if not no_lora_compute:
@@ -728,7 +764,8 @@ class LoraUnorderedBatchInfer:
                             self.batch_req_bins, 2, self.infer_adapter.a_scaling)
             # delta_vA = None
             end_event8.record()
-            end_event8.synchronize()
+            if self.use_sync:
+                end_event8.synchronize()
             lora_time_V = start_event8.elapsed_time(end_event8)
             
         # printstart = time.time()
@@ -739,6 +776,13 @@ class LoraUnorderedBatchInfer:
         self.get_qkv_timeDict = {}
         self.get_qkv_timeDict["q_base"] = base_time_Q
         self.get_qkv_timeDict["q_lora"] = lora_time_Q
+        
+        self.get_qkv_timeDict["q_lora_adapter_start"] = self.infer_adapter.a_start.numel()
+        self.get_qkv_timeDict["q_lora_adapter_len"] = self.infer_adapter.a_len.numel()
+        self.get_qkv_timeDict["q_lora_adapter_loc"] = self.infer_adapter.a_loc.numel()
+        self.get_qkv_timeDict["q_lora_adapter_bins"] = self.batch_req_bins.numel()
+        self.get_qkv_timeDict["q_lora_adapter_scaling"] = self.infer_adapter.a_scaling.numel()
+        
         self.get_qkv_timeDict["q_rotary_emb"] = rotary_emb_q_time
         self.get_qkv_timeDict["k_base"] = base_time_K
         self.get_qkv_timeDict["k_lora"] = lora_time_K
@@ -783,7 +827,8 @@ class LoraUnorderedBatchInfer:
             # delta_oA = None
             # mark_end("get_o")
             end_event2.record()
-            end_event2.synchronize()
+            if self.use_sync:
+                end_event2.synchronize()
             lora_time_O = start_event2.elapsed_time(end_event2)
 
         # print(f"\t\tBase O : {base_time_O:.8f} ms | LoRA O : {lora_time_O:.8f} ms")
@@ -808,7 +853,8 @@ class LoraUnorderedBatchInfer:
         o = torch.mm(input.view(-1, base_layer_infer.embed_dim_),
                           base_layer_weight.o_weight_)
         end_event1.record()
-        end_event1.synchronize()
+        if self.use_sync:
+            end_event1.synchronize()
         base_time_O = start_event1.elapsed_time(end_event1)
         
         if not no_lora_compute:
@@ -838,7 +884,8 @@ class LoraUnorderedBatchInfer:
                             self.batch_req_bins, 3, self.infer_adapter.a_scaling)
             # delta_oA = None
             end_event2.record()
-            end_event2.synchronize()
+            if self.use_sync:
+                end_event2.synchronize()
             lora_time_O = start_event2.elapsed_time(end_event2)
             
         # print(f"\t\tBase O : {base_time_O:.8f} ms | LoRA O : {lora_time_O:.8f} ms")
