@@ -24,6 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-num-adapters", type=int, default=None)
     parser.add_argument("--enable-abort", action="store_true")
     parser.add_argument("--vllm-mem-ratio", type=float, default=0.95)
+    parser.add_argument("--use_sync", default=True)
     args = parser.parse_args()
 
     base_model = BASE_MODEL[args.model_setting]
@@ -46,6 +47,7 @@ if __name__ == "__main__":
         cmd = f"python -m slora.server.api_server --max_total_token_num {args.num_token}"
         cmd += f" --model {base_model}"
         cmd += f" --tokenizer_mode auto"
+        cmd += f" --use_sync {args.use_sync}"
 
         num_iter = args.num_adapter // len(adapter_dirs) + 1
         for i in range(num_iter):
@@ -102,6 +104,10 @@ if __name__ == "__main__":
             os.wait()
 
         sys.exit(0)
-
-    # print(cmd)
-    os.system(cmd)
+    
+    # cmd_args = cmd.split(" ")
+    # formatted_list = ', '.join(f'"{item}"' for item in cmd_args)
+    #print(f'[{formatted_list}]')
+    print(f'{cmd}')
+    
+    #os.system(cmd)
