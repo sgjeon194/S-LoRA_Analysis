@@ -38,7 +38,7 @@ def generate_requests(num_adapters, alpha, adapter_dirs, trace_type, seed=42):
     for i, row in trace.iterrows():
         tic = row["TIMESTAMP"] - base_time
         input_len = row["ContextTokens"]
-        input_len = min(input_len, 2048)
+        #input_len = min(input_len, 2048)
         output_len = row["GeneratedTokens"]
         
         request = Request(i, adapter_dirs[ind[i]][0], adapter_dirs[ind[i]][1],

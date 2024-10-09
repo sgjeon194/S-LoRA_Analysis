@@ -4,7 +4,7 @@ import numpy as np
 from typing import List
 from ..io_struct import Batch, Req
 from slora.utils.infer_utils import  calculate_time
-
+import random
 
 class ReqQueue:
 
@@ -80,6 +80,52 @@ class ReqQueue:
                 new_batch_total_tokens += req.input_len
             else:
                 break
+
+        if len(can_run_list) != 0:
+            new_batch = Batch(uuid.uuid4().hex, can_run_list)
+            self.waiting_req_list = self.waiting_req_list[len(can_run_list) + aborted_count:]
+            return new_batch
+        else:
+            return None
+
+    def generate_new_batch_random(self, current_batch:Batch, lora_ranks: dict[str, int]):
+        if len(self.waiting_req_list) < 1 or current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
+            return None
+        
+        #print(__name__)
+        #print(f"Current batch size : {len(current_batch.reqs)}")
+        
+        self._init_cache_list(current_batch, lora_ranks)
+        can_run_list = []
+        new_batch_total_tokens = 0
+        aborted_count = 0
+        
+        batch_size = min(random.randint(1, len(self.waiting_req_list)), 32)
+        total_batch_token_length = 1200
+        
+        token_per_req = total_batch_token_length // batch_size + 1
+        remain = batch_size - total_batch_token_length % batch_size
+        new_input_length = [a - b for a, b in zip([token_per_req for i in range(batch_size)], [1 if i < remain else 0 for i in range(batch_size)])]
+        
+        for idx in range(batch_size):
+            req = self.waiting_req_list[idx]
+            req.input_len = new_input_length[idx]
+            if len(req.prompt_ids) < req.input_len:
+                req.prompt_ids.extend([req.prompt_ids[-1]] * (req.input_len - len(req.prompt_ids)))
+            else:
+                req.prompt_ids = req.prompt_ids[:req.input_len]
+        
+        for idx in range(batch_size):
+            req = self.waiting_req_list[idx]
+            if req.aborted:
+                aborted_count += 1
+                continue
+            if (self._can_add_new_req(req, lora_ranks) and
+                new_batch_total_tokens + req.input_len <= self.batch_max_tokens):
+                can_run_list.append(req)
+                new_batch_total_tokens += req.input_len
+            else:
+                return None
 
         if len(can_run_list) != 0:
             new_batch = Batch(uuid.uuid4().hex, can_run_list)

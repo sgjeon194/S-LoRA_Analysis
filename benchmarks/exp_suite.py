@@ -6,6 +6,10 @@ BASE_MODEL = {
         "S2": "huggyllama/llama-7b",
         "S3": "huggyllama/llama-13b",
         "S4": "huggyllama/llama-13b",
+        "S5": "huggyllama/llama-7b",
+        "S6": "huggyllama/llama-7b",
+        "S7": "huggyllama/llama-7b",
+        "S8": "huggyllama/llama-7b",
         "Real": "huggyllama/llama-7b",
 }
 
@@ -16,6 +20,11 @@ LORA_DIR = {
         "S3": ["dummy-lora-13b-rank-16"],
         "S4": ["dummy-lora-13b-rank-64",
                "dummy-lora-13b-rank-32", "dummy-lora-13b-rank-16",],
+        "S5": ["dummy-lora-7b-rank-16",],
+        "S6": ["dummy-lora-7b-rank-32",],
+        "S7": ["dummy-lora-7b-rank-64",],
+        "S8": ["dummy-lora-7b-rank-32",
+               "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
         "Real": ["tloen/alpaca-lora-7b", "MBZUAI/bactrian-x-llama-7b-lora"],
 }
 

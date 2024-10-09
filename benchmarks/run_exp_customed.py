@@ -242,10 +242,11 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
         if num_adapters == 0:
             adapter_dirs = [(base_model, None)]
             num_adapters = 1
-        # requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
-        #                          input_range, output_range, adapter_dirs,
-        #                          seed=seed)
-        requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, 0)
+
+        requests = generate_requests(num_adapters, alpha, req_rate, cv, duration,
+                                 input_range, output_range, adapter_dirs,
+                                 seed=seed)
+        # requests = azureLLMInferenceTrace.generate_requests(num_adapters, alpha, adapter_dirs, 1)
         # requests = azureLLMInferenceTrace.generate_downsampled_requests(num_adapters, alpha, req_rate, duration, 
         #                                                                input_range, output_range, adapter_dirs, 1)
         
@@ -277,7 +278,7 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
     if warmup == True:
         requests = requests[0:1]
     else:
-        requests = requests[0:1500]
+        requests = requests[:1500]
     # requests[0].req_time = 0
     # requests = requests[0:50]
 

@@ -189,7 +189,7 @@ class RouterManager:
         # 이 함수는 서버가 켜져있는 동안 계속 호출되는 중
         if self.running_batch is None:
             req_queue_len = len(self.req_queue.waiting_req_list)
-            # if req_queue_len < 3:
+            # if req_queue_len < 2:
             #     return
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
@@ -229,6 +229,7 @@ class RouterManager:
                 if not self.no_request_started:
                     timeDict = {}
                     timeDict["batch_id"] = ""
+                    timeDict["max_rank"] = 0
                     timeDict["ranks"] = 0
                     timeDict["request_num"] = 0
                     timeDict["adapter_num"] = 0
@@ -309,7 +310,9 @@ class RouterManager:
         if self.no_request_started:
             timeDict = {}
             timeDict["batch_id"] = ""
+            timeDict["max_rank"] = 0
             timeDict["ranks"] = 0
+            timeDict["rank_types"] = []
             timeDict["request_num"] = 0
             timeDict["adapter_num"] = 0
             timeDict["total_token_num"] = 0
@@ -332,7 +335,14 @@ class RouterManager:
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
-            timeDict["ranks"] = sum([self.lora_ranks[list(self.running_batch.adapter_dirs)[i]] for i in range(len(list(self.running_batch.adapter_dirs)))])
+            # adapters = [req.adapter_dir for req in batch.reqs]
+            # ranks = [self.lora_ranks[adapter] for adapter in adapters]
+            
+            ranks = [self.lora_ranks[adapter] for adapter in [req.adapter_dir for req in batch.reqs]]
+            timeDict["max_rank"] = max(ranks)
+            timeDict["ranks"] = sum(ranks)
+            timeDict["rank_types"] = ranks
+            
             timeDict.update(ans[0][1])
             writeTimeDict(timeDict)
             
@@ -346,7 +356,9 @@ class RouterManager:
         if self.no_request_started:
             timeDict = {}
             timeDict["batch_id"] = ""
+            timeDict["max_rank"] = 0
             timeDict["ranks"] = 0
+            timeDict["rank_types"] = 0
             timeDict["request_num"] = 0
             timeDict["adapter_num"] = 0
             timeDict["total_token_num"] = 0
@@ -371,7 +383,10 @@ class RouterManager:
         if self.warm_up_finished:
             timeDict = {}
             timeDict["batch_id"] = batch.batch_id
-            timeDict["ranks"] = sum([self.lora_ranks[list(self.running_batch.adapter_dirs)[i]] for i in range(len(list(self.running_batch.adapter_dirs)))])
+            ranks = [self.lora_ranks[adapter] for adapter in [req.adapter_dir for req in batch.reqs]]
+            timeDict["max_rank"] = max(ranks)
+            timeDict["ranks"] = sum(ranks)
+            timeDict["rank_types"] = ranks
             timeDict.update(ans[0][1])
             writeTimeDict(timeDict)
             

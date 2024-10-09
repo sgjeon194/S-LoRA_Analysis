@@ -59,7 +59,7 @@ def generate_requests(num_adapters, alpha, req_rate, cv, duration,
     # generate input output len
     input_lens = np.random.randint(input_range[0], input_range[1], tot_req)
     output_lens = np.random.randint(output_range[0], output_range[1], tot_req)
-
+    
     # generate timestamp
     requests = []
     tic = 0
@@ -69,8 +69,11 @@ def generate_requests(num_adapters, alpha, req_rate, cv, duration,
     intervals = np.random.gamma(shape, scale, tot_req)
     for i in range(tot_req):
         tic += intervals[i]
+        # requests.append(Request(i, adapter_dirs[ind[i]][0], adapter_dirs[ind[i]][1],
+        #                         dummy_prompt(input_lens[i]), int(input_lens[i]), int(output_lens[i]),
+        #                         tic))
         requests.append(Request(i, adapter_dirs[ind[i]][0], adapter_dirs[ind[i]][1],
-                                dummy_prompt(input_lens[i]), int(input_lens[i]), int(output_lens[i]),
+                                dummy_prompt(300), 300, 100,
                                 tic))
     return requests
 
