@@ -377,7 +377,7 @@ def main():
     # debug parameters
     # do not use no-lora-swap, does not rule out the swap over MemAllocator
     parser.add_argument("--no-lora-swap", action="store_true")
-    parser.add_argument("--no-lora-compute", action="store_true")
+    parser.add_argument("--no-lora-compute", default=True)
     parser.add_argument("--no-kernel", action="store_true")
     parser.add_argument("--no-mem-pool", action="store_true")
     parser.add_argument("--bmm", action="store_true")
@@ -386,7 +386,7 @@ def main():
     ''' end of slora arguments '''
 
     args = parser.parse_args()
-
+    
     assert args.max_req_input_len < args.max_req_total_len
     setting["max_req_total_len"] = args.max_req_total_len
     setting["nccl_port"] = args.nccl_port
