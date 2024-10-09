@@ -47,7 +47,10 @@ if __name__ == "__main__":
         cmd = f"python -m slora.server.api_server --max_total_token_num {args.num_token}"
         cmd += f" --model {base_model}"
         cmd += f" --tokenizer_mode auto"
-        cmd += f" --use_sync {args.use_sync}"
+        if args.use_sync == False:
+            cmd += f" --use_sync {args.use_sync}"
+        if args.use_sync == False:
+            cmd += f" --use_sync {args.use_sync}"
 
         num_iter = args.num_adapter // len(adapter_dirs) + 1
         for i in range(num_iter):
