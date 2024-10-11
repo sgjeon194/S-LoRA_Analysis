@@ -111,6 +111,6 @@ if __name__ == "__main__":
     # cmd_args = cmd.split(" ")
     # formatted_list = ', '.join(f'"{item}"' for item in cmd_args)
     #print(f'[{formatted_list}]')
-    print(f'{cmd}')
+    #print(f'{cmd}')
     
-    #os.system(cmd)
+    os.system(cmd)

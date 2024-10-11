@@ -4,27 +4,34 @@ import itertools
 BASE_MODEL = {
         "S1": "huggyllama/llama-7b",
         "S2": "huggyllama/llama-7b",
-        "S3": "huggyllama/llama-13b",
-        "S4": "huggyllama/llama-13b",
+        "S3": "huggyllama/llama-7b",
+        "S4": "huggyllama/llama-7b",
         "S5": "huggyllama/llama-7b",
         "S6": "huggyllama/llama-7b",
         "S7": "huggyllama/llama-7b",
-        "S8": "huggyllama/llama-7b",
+        
+        "S8": "huggyllama/llama-13b",
+        "S9": "huggyllama/llama-13b",
+        
         "Real": "huggyllama/llama-7b",
 }
 
 LORA_DIR = {
         "S1": ["dummy-lora-7b-rank-8"],
-        "S2": ["dummy-lora-7b-rank-64", "dummy-lora-7b-rank-32",
+        "S2": ["dummy-lora-7b-rank-16",],
+        "S3": ["dummy-lora-7b-rank-32",],
+        "S4": ["dummy-lora-7b-rank-64",],
+        
+        "S5": ["dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
+        "S6": ["dummy-lora-7b-rank-32", "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
+        "S7": ["dummy-lora-7b-rank-64", "dummy-lora-7b-rank-32",
                "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
-        "S3": ["dummy-lora-13b-rank-16"],
-        "S4": ["dummy-lora-13b-rank-64",
+        
+        
+        
+        "S8": ["dummy-lora-13b-rank-16"],
+        "S9": ["dummy-lora-13b-rank-64",
                "dummy-lora-13b-rank-32", "dummy-lora-13b-rank-16",],
-        "S5": ["dummy-lora-7b-rank-16",],
-        "S6": ["dummy-lora-7b-rank-32",],
-        "S7": ["dummy-lora-7b-rank-64",],
-        "S8": ["dummy-lora-7b-rank-32",
-               "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
         "Real": ["tloen/alpaca-lora-7b", "MBZUAI/bactrian-x-llama-7b-lora"],
 }
 
