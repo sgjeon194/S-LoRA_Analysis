@@ -14,6 +14,8 @@ class ReqQueue:
         self.batch_max_tokens = batch_max_tokens
         self.running_max_req_size = running_max_req_size
         self.waiting_req_list: List[Req] = []
+        self.static_id = 0
+        
         
     def append(self, req):
         self.waiting_req_list.append(req)
@@ -130,6 +132,59 @@ class ReqQueue:
         if len(can_run_list) != 0:
             new_batch = Batch(uuid.uuid4().hex, can_run_list)
             self.waiting_req_list = self.waiting_req_list[len(can_run_list) + aborted_count:]
+            return new_batch
+        else:
+            return None
+
+    
+    def generate_new_batch_synthetic(self, current_batch:Batch, lora_ranks: dict[str, int], rank_a, rank_b, rank_ratio):
+        if len(self.waiting_req_list) < 1 or current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
+            return None
+        
+        self._init_cache_list(current_batch, lora_ranks)
+        request_list = []
+        new_batch_total_tokens = 0
+        aborted_count = 0
+        
+        rank_a_loras = [name for name, rank in lora_ranks.items() if rank == rank_a]
+        rank_b_loras = [name for name, rank in lora_ranks.items() if rank == rank_b]
+        
+        rank_a_lora_num = random.randint(1, 32) // rank_ratio
+        ranks_a = random.choices(rank_a_loras, k=rank_a_lora_num)
+        rank_b_lora_num = rank_a_lora_num * rank_ratio
+        ranks_b = random.choices(rank_b_loras, k=rank_b_lora_num)
+        
+        using_lora_adapters = ranks_a + ranks_b
+        batch_size = len(using_lora_adapters)
+        random.shuffle(using_lora_adapters)
+        new_input_length = [random.randint(8, 512) for i in range(batch_size)]
+        new_output_length = [random.randint(8, 512) for i in range(batch_size)]
+        
+        first_token = self.waiting_req_list[0].prompt_ids[0]
+        dummy_token = self.waiting_req_list[0].prompt_ids[-1]
+        
+        for idx in range(batch_size):
+            prompt_ids = [first_token] + [dummy_token] * (new_input_length[idx] - 1)
+            new_sampling_params = self.waiting_req_list[0].sample_params
+            new_sampling_params.max_new_tokens = new_output_length[idx]
+            request_list.append(Req(using_lora_adapters[idx], self.static_id, prompt_ids, self.waiting_req_list[0].sample_params))
+            self.static_id = self.static_id + 1
+                
+        can_run_list = []
+        for req in request_list:
+            if req.aborted:
+                aborted_count += 1
+                continue
+            if (self._can_add_new_req(req, lora_ranks) and
+                new_batch_total_tokens + req.input_len <= self.batch_max_tokens):
+                can_run_list.append(req)
+                new_batch_total_tokens += req.input_len
+            else:
+                return None
+
+        if len(can_run_list) != 0:
+            new_batch = Batch(uuid.uuid4().hex, can_run_list)
+            self.waiting_req_list = self.waiting_req_list[1:]
             return new_batch
         else:
             return None

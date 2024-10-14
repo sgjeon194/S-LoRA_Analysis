@@ -192,6 +192,7 @@ class RouterManager:
             # if req_queue_len < 2:
             #     return
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
+            #new_batch = self.req_queue.generate_new_batch_synthetic(self.running_batch, self.lora_ranks, 64, 8, 2)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
                 self.req_queue.reset_abort_list()
@@ -269,6 +270,7 @@ class RouterManager:
             #print("\n==== Step3 - Even running a batch, can we generate more? ====")
             req_queue_len = len(self.req_queue.waiting_req_list)
             new_mini_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
+            #new_mini_batch = self.req_queue.generate_new_batch_synthetic(self.running_batch, self.lora_ranks, 64, 8, 2)
             
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
