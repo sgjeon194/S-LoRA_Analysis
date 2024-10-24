@@ -278,7 +278,9 @@ def run_exp(model_setting, backend, server, config, output, mode, seed=42, debug
     if warmup == True:
         requests = requests[0:1]
     else:
-        requests = requests[:1500]
+        requests = requests[:2]
+        
+    print(len(requests))
     # requests[0].req_time = 0
     # requests = requests[0:50]
 

@@ -49,8 +49,6 @@ if __name__ == "__main__":
         cmd += f" --tokenizer_mode auto"
         if args.use_sync == False:
             cmd += f" --use_sync {args.use_sync}"
-        if args.use_sync == False:
-            cmd += f" --use_sync {args.use_sync}"
 
         num_iter = args.num_adapter // len(adapter_dirs) + 1
         for i in range(num_iter):

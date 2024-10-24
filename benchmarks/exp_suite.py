@@ -22,7 +22,7 @@ LORA_DIR = {
         "S3": ["dummy-lora-7b-rank-32",],
         "S4": ["dummy-lora-7b-rank-64",],
         
-        "S5": ["dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
+        "S5": ["dummy-lora-7b-rank-64", "dummy-lora-7b-rank-8"],
         "S6": ["dummy-lora-7b-rank-32", "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
         "S7": ["dummy-lora-7b-rank-64", "dummy-lora-7b-rank-32",
                "dummy-lora-7b-rank-16", "dummy-lora-7b-rank-8"],
@@ -295,7 +295,7 @@ debug_suite = {
     ),
 
     "custom": BenchmarkConfig(
-        num_adapters = [100],
+        num_adapters = [25],
         alpha = [1],
         req_rate = [10], # Change this ###################################################
         cv = [1],
