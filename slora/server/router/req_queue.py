@@ -90,7 +90,7 @@ class ReqQueue:
         else:
             return None
 
-    def generate_new_batch_random(self, current_batch:Batch, lora_ranks: dict[str, int]):
+    def generate_new_batch_equal_prompt_size(self, current_batch:Batch, lora_ranks: dict[str, int]):
         if len(self.waiting_req_list) < 1 or current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
             return None
         
@@ -149,7 +149,7 @@ class ReqQueue:
         rank_a_loras = [name for name, rank in lora_ranks.items() if rank == rank_a]
         rank_b_loras = [name for name, rank in lora_ranks.items() if rank == rank_b]
         
-        rank_a_lora_num = random.randint(1, 32) // rank_ratio
+        rank_a_lora_num = 4#random.randint(rank_ratio, 32) // rank_ratio
         ranks_a = random.choices(rank_a_loras, k=rank_a_lora_num)
         rank_b_lora_num = rank_a_lora_num * rank_ratio
         ranks_b = random.choices(rank_b_loras, k=rank_b_lora_num)
@@ -157,7 +157,7 @@ class ReqQueue:
         using_lora_adapters = ranks_a + ranks_b
         batch_size = len(using_lora_adapters)
         random.shuffle(using_lora_adapters)
-        new_input_length = [random.randint(8, 512) for i in range(batch_size)]
+        new_input_length = self._random_integer_divide(1200, batch_size)
         new_output_length = [random.randint(8, 512) for i in range(batch_size)]
         
         first_token = self.waiting_req_list[0].prompt_ids[0]
@@ -188,6 +188,29 @@ class ReqQueue:
             return new_batch
         else:
             return None
+
+
+    def _random_integer_divide(self, total, n):
+        min_value = 8
+        remaining_total = total - n * min_value
+        
+        if remaining_total < 0:
+            raise ValueError("총합이 너무 작아서 값을 분배할 수 없습니다.")
+        
+        if n == 0:
+            print("pass")
+            pass
+        random_ratios = np.random.rand(n)
+        random_ratios /= np.sum(random_ratios)
+        values = np.floor(random_ratios * remaining_total).astype(int)
+        diff = remaining_total - np.sum(values)
+        
+        for i in range(diff):
+            values[i % n] += 1
+        
+        values += min_value
+        
+        return values.tolist()
 
 
     def next_batch(self):
