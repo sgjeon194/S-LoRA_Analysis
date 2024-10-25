@@ -382,7 +382,7 @@ def main():
     parser.add_argument("--no-mem-pool", action="store_true")
     parser.add_argument("--bmm", action="store_true")
     parser.add_argument("--no-lora", action="store_true")
-    parser.add_argument("--use_sync", default=True)
+    parser.add_argument("--use_sync", action="store_true")
     ''' end of slora arguments '''
 
     args = parser.parse_args()

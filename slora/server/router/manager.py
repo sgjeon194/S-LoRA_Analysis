@@ -224,7 +224,9 @@ class RouterManager:
                 torch.cuda.synchronize()
                 await self._prefill_batch(self.running_batch)
                 await self._filter_runing_batch()
+                print("Prefill end")
                 self.has_wait_tokens = 0
+                #exit()
                 # print("---- Step1 end ----\n")
             else:
                 if not self.no_request_started:
