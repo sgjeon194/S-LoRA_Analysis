@@ -166,6 +166,7 @@ class RouterManager:
 
     async def loop_for_fwd(self,):
         counter_count = 0
+        
         while True:
             await self._step()
             counter_count += 1
@@ -179,6 +180,22 @@ class RouterManager:
             if self.running_batch is None:
                 await asyncio.sleep(0.01)  # 10ms
 
+
+    async def loop_for_test_fwd(self):
+        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
+        await self._step_prefill_test(new_batch)
+        await self._decode_batch(self.running_batch)
+        print("Decode end")
+        print("warmup end\n")
+        ## Remove log file
+        
+        removeLogFile()
+        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=2)
+        await self._step_prefill_test(new_batch)
+        await self._decode_batch(self.running_batch)
+        print("Decode end")
+        print("Test finished")
+
     no_request_started = False
     
     async def _step(self):
@@ -191,8 +208,9 @@ class RouterManager:
             req_queue_len = len(self.req_queue.waiting_req_list)
             # if req_queue_len < 2:
             #     return
+            #new_batch = self.req_queue.generate_new_batch_equal_prompt_size(self.running_batch, self.lora_ranks)
             new_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
-            #new_batch = self.req_queue.generate_new_batch_synthetic(self.running_batch, self.lora_ranks, 64, 8, 2)
+            # new_batch = self.req_queue.generate_new_batch_synthetic(self.running_batch, self.lora_ranks, 64, 8, 2)
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
                 self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
                 self.req_queue.reset_abort_list()
@@ -226,7 +244,7 @@ class RouterManager:
                 await self._filter_runing_batch()
                 print("Prefill end")
                 self.has_wait_tokens = 0
-                #exit()
+                # exit()
                 # print("---- Step1 end ----\n")
             else:
                 if not self.no_request_started:
@@ -272,6 +290,7 @@ class RouterManager:
             #print("\n==== Step3 - Even running a batch, can we generate more? ====")
             req_queue_len = len(self.req_queue.waiting_req_list)
             new_mini_batch = self.req_queue.generate_new_batch(self.running_batch, self.lora_ranks)
+            #new_mini_batch = self.req_queue.generate_new_batch_equal_prompt_size(self.running_batch, self.lora_ranks)
             #new_mini_batch = self.req_queue.generate_new_batch_synthetic(self.running_batch, self.lora_ranks, 64, 8, 2)
             
             if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
@@ -301,6 +320,33 @@ class RouterManager:
                 await self._decode_batch(self.running_batch)
                 await self._filter_runing_batch()
             #print("---- Step3 end ----\n")
+        
+    async def _step_prefill_test(self, new_batch):
+        
+        if self.input_params.enable_abort and len(self.req_queue.abort_req_list) > 0:
+            self.send_to_detokenization.send_pyobj(BatchAbortReq(self.req_queue.abort_req_list))
+            self.req_queue.reset_abort_list()
+        if new_batch is not None:
+            self.running_batch = new_batch
+
+            if not self.input_params.no_lora:
+                # load adapters
+                ret = []
+                for tp_rank in range(self.world_size):
+                    # print(f"\tnew batch adapters : {str(new_batch.adapter_dirs)}")
+                    ret.append(self.model_rpcs[tp_rank].load_adapters(new_batch.adapter_dirs))
+                await asyncio.gather(*ret)
+
+            torch.cuda.synchronize()
+            await self._prefill_batch(self.running_batch)
+            await self._filter_runing_batch()
+            print("Prefill end")
+            self.has_wait_tokens = 0
+        
+    # async def _step_decode_test(self):
+    #     await self._decode_batch(self.running_batch)
+    #     print("Decode end")
+
         
 
     async def _init_batch(self, batch: Batch):
@@ -561,7 +607,8 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
     
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.create_task(router.loop_for_fwd())
+    #loop.create_task(router.loop_for_fwd())
+    loop.create_task(router.loop_for_test_fwd())
     loop.run_until_complete(router.loop_for_netio_req())
     return
 
@@ -577,3 +624,12 @@ def writeTimeDict(data):
     file.write(json.dumps(data))
     file.write(", ")
     file.close()
+    
+def removeLogFile():
+    current_file_path = os.path.abspath(__file__)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+    file_path = f"{project_root}/Logs/log.txt"
+    
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        

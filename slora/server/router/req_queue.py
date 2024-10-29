@@ -6,6 +6,8 @@ from ..io_struct import Batch, Req
 from slora.utils.infer_utils import  calculate_time
 import random
 
+from ..sampling_params import SamplingParams
+
 class ReqQueue:
 
     def __init__(self, max_total_tokens, batch_max_tokens, running_max_req_size) -> None:
@@ -102,12 +104,15 @@ class ReqQueue:
         new_batch_total_tokens = 0
         aborted_count = 0
         
-        batch_size = min(random.randint(1, len(self.waiting_req_list)), 32)
+        batch_size = 1 #min(random.randint(1, len(self.waiting_req_list)), 32)
         total_batch_token_length = 1200
         
         token_per_req = total_batch_token_length // batch_size + 1
         remain = batch_size - total_batch_token_length % batch_size
         new_input_length = [a - b for a, b in zip([token_per_req for i in range(batch_size)], [1 if i < remain else 0 for i in range(batch_size)])]
+        
+        rank_64_loras = [name for name, rank in lora_ranks.items() if rank == 8]
+        using_loras = random.choices(rank_64_loras, k=1)
         
         for idx in range(batch_size):
             req = self.waiting_req_list[idx]
@@ -124,6 +129,7 @@ class ReqQueue:
                 continue
             if (self._can_add_new_req(req, lora_ranks) and
                 new_batch_total_tokens + req.input_len <= self.batch_max_tokens):
+                req.adapter_dir = using_loras[0]
                 can_run_list.append(req)
                 new_batch_total_tokens += req.input_len
             else:
@@ -135,8 +141,56 @@ class ReqQueue:
             return new_batch
         else:
             return None
-
     
+    def generate_test_batch(self, current_batch:Batch, lora_ranks: dict[str, int], batch_size, ):
+        if current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
+            return None
+        
+        self._init_cache_list(current_batch, lora_ranks)
+        
+        request_list = []
+        new_batch_total_tokens = 0
+        aborted_count = 0
+        
+        lora_names = [name for name, _ in lora_ranks.items()]
+        rank_64_loras = [name for name, rank in lora_ranks.items() if rank == 64]
+        rank_32_loras = [name for name, rank in lora_ranks.items() if rank == 32]
+        rank_16_loras = [name for name, rank in lora_ranks.items() if rank == 16]
+        rank_8_loras = [name for name, rank in lora_ranks.items() if rank == 8]
+        
+        using_ranks_64_loras = random.choices(rank_64_loras, k=batch_size)
+        using_ranks_32_loras = random.choices(rank_32_loras, k=0)
+        using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras
+        
+        new_input_length = [500, 700]#[self._random_integer_divide(1200, batch_size)]
+        new_output_length = [2, 2]#[random.randint(8, 512) for i in range(batch_size)]
+               
+        for idx in range(batch_size):
+            prompt_ids = [1] + [15043] * (new_input_length[idx] - 1)
+            new_sampling_params = SamplingParams(False, 0.0, 0.0, 1.0, 1.0, 1, True, new_output_length[idx], [])
+            new_sampling_params.max_new_tokens = new_output_length[idx]
+            request_list.append(Req(using_lora_adapters[idx], self.static_id, prompt_ids, new_sampling_params))
+            self.static_id = self.static_id + 1
+        
+        can_run_list = []
+        for req in request_list:
+            if req.aborted:
+                aborted_count += 1
+                continue
+            if (self._can_add_new_req(req, lora_ranks) and
+                new_batch_total_tokens + req.input_len <= self.batch_max_tokens):
+                can_run_list.append(req)
+                new_batch_total_tokens += req.input_len
+            else:
+                return None
+
+        if len(can_run_list) != 0:
+            new_batch = Batch(uuid.uuid4().hex, can_run_list)
+            self.waiting_req_list = self.waiting_req_list[1:]
+            return new_batch
+        else:
+            return None
+        
     def generate_new_batch_synthetic(self, current_batch:Batch, lora_ranks: dict[str, int], rank_a, rank_b, rank_ratio):
         if len(self.waiting_req_list) < 1 or current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
             return None
