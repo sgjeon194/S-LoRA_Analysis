@@ -105,10 +105,10 @@ namespace
             switch (x.scalar_type())
             {
             case at::ScalarType::Half:
-                printf("start_indicies size : %ld\n", start_indicies.numel());
-                printf("lora_ranks size : %ld\n", lora_ranks.numel());
-                printf("loc_indicies size : %ld\n", loc_indicies.numel());
-                printf("indicies size : %ld\n", indicies.numel());
+                // printf("start_indicies size : %ld\n", start_indicies.numel());
+                // printf("lora_ranks size : %ld\n", lora_ranks.numel());
+                // printf("loc_indicies size : %ld\n", loc_indicies.numel());
+                // printf("indicies size : %ld\n", indicies.numel());
                 ok = launch_bgmv_kernel(static_cast<nv_half *>(y.data_ptr()),
                                         static_cast<nv_half *>(x.data_ptr()),
                                         static_cast<nv_half *>(w.data_ptr()),

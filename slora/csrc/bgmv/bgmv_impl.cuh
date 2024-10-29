@@ -34,13 +34,13 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
 
     size_t lora_idx = indicies[batch_idx];
     size_t lora_rank = lora_ranks[lora_idx] / 4; // if j >= lora_rank, we do not need to do the computation
-    if (blockIdx.x == 63 && blockIdx.y == 773 && threadIdx.x == 0 && threadIdx.y == 0)
-    {
-        printf("feat in : %d, feat out : %d\n", feat_in, feat_out);
-        printf("tile size : %lu, vec size : %lu, type size : %lu \n", tile_size, vec_size, sizeof(T));
-        printf("lora idx : %lu (must be smaller than lora_rank size)\n", lora_idx);
-        printf("lora rank : %lu (must be bigger than 63)\n", lora_rank);
-    }
+    // if (blockIdx.x == 63 && blockIdx.y == 773 && threadIdx.x == 0 && threadIdx.y == 0)
+    // {
+    //     printf("feat in : %d, feat out : %d\n", feat_in, feat_out);
+    //     printf("tile size : %lu, vec size : %lu, type size : %lu \n", tile_size, vec_size, sizeof(T));
+    //     printf("lora idx : %lu (must be smaller than lora_rank size)\n", lora_idx);
+    //     printf("lora rank : %lu (must be bigger than 63)\n", lora_rank);
+    // }
     if (j >= lora_rank)
     {
         return;
@@ -254,16 +254,15 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         dim3 nblks(feat_out / (ty * tz), batch_size); // (6, batch_size)
         dim3 nthrs(tx, ty, tz);                       // 항샹 셋을 곱하면 128
 
-        printf("expand dim : %lu %lu %lu\n", tx, ty, tz);
+        // printf("expand block dim : %lu %lu %lu - thread dim : %lu %lu %lu\n", nblks.x, nblks.y, nblks.z, tx, ty, tz);
         bgmv_multi_lora_rank_expand_kernel<feat_in, feat_out><<<nblks, nthrs>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, lora_scales);
-        printf("====================================\n");
+        // printf("====================================\n");
     }
     else
     {
         assert(feat_in % (vec_size) == 0);
         dim3 nblks(feat_out, batch_size);
-        printf("====================================\n");
-        printf("shrink - block dim : (%lu %lu %lu) - thread dim (32, 4, 1)\n", nblks.x, nblks.y, nblks.z);
+        // printf("shrink - block dim : (%lu %lu %lu) - thread dim (32, 4, 1)\n", nblks.x, nblks.y, nblks.z);
         dim3 nthrs(32, 4);
         bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
     }
