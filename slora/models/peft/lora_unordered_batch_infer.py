@@ -44,6 +44,8 @@ class LoraUnorderedBatchInfer:
         self.kv_embed_dim = base_model.tp_k_head_num_ * base_model.head_dim_
         self.use_sync = use_sync
         self.timeDict = {}
+        self.stream1 = torch.cuda.Stream()
+        self.stream2 = torch.cuda.Stream()
     
     @torch.no_grad()
     def forward(
@@ -290,7 +292,8 @@ class LoraUnorderedBatchInfer:
         get_qkv_start = time.time()
         q = self._lora_get_qkv(layer_id, input1, cache_k, cache_v, infer_state, no_lora_compute)
         if self.use_sync:
-            torch.cuda.synchronize()
+            pass
+        torch.cuda.synchronize()
         get_qkv_time = 1000 * (time.time() - get_qkv_start)
         
         input1 = None
@@ -312,7 +315,8 @@ class LoraUnorderedBatchInfer:
         get_o_start = time.time()
         o = self._lora_get_o(layer_id, o, infer_state, no_lora_compute)
         if self.use_sync:
-            torch.cuda.synchronize()
+            pass
+        torch.cuda.synchronize()
         get_o_time = 1000 * (time.time() - get_o_start)
         
         # if self.world_size_ > 1:
@@ -546,6 +550,7 @@ class LoraUnorderedBatchInfer:
         return q
 
 
+
     def _lora_get_qkv(self, layer_id, input_embs, cache_k, cache_v, infer_state, no_lora_compute=False)->torch.Tensor:
         base_model = self.base_model
         base_layer_weight = base_model.trans_layers_weight[layer_id]
@@ -555,13 +560,15 @@ class LoraUnorderedBatchInfer:
         #no_lora_compute = True
         
         base_start_Q = time.time()
-        q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_),
-                     base_layer_weight.q_weight_)
+        # with torch.cuda.stream(self.stream1):
+        # q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_),
+        #             base_layer_weight.q_weight_)
+
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_Q = 1000 * (time.time() -  base_start_Q)
         
-        assert(len(q)==len(self.batch_req_bins))
+        #assert(len(q)==len(self.batch_req_bins))
         # q = q_base + input * A * B * scaling
         # input: (S, H) A: (H, R) B: (R, H)
         if not no_lora_compute:
@@ -584,10 +591,22 @@ class LoraUnorderedBatchInfer:
             #                                 infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
             #                                 0, self.max_lora_dim, self.max_b_seq_len)
             # else:
-            dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+            X = input_embs.view(-1, base_layer_infer.embed_dim_)
+            with torch.cuda.stream(self.stream1):
+                q = torch.mm(X, # 1 * 409 #4096 * 4096
+                         base_layer_weight.q_weight_)
+                # print(input_embs.view(-1, base_layer_infer.embed_dim_).shape)
+                # print(base_layer_weight.q_weight_.shape)
+                # q = input_embs.view(-1, base_layer_infer.embed_dim_) @ base_layer_weight.q_weight_
+            with torch.cuda.stream(self.stream2):
+                dispatch_bgmv(delta_qA, X, 
                         self.key_buffer[layer_id],
                         self.infer_adapter.a_start, self.infer_adapter.a_len, 
-                        self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling)
+                        self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling,
+                        self.stream2.cuda_stream)
+            
+            self.stream1.synchronize()
+            self.stream2.synchronize()
             dispatch_bgmv(q, delta_qA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
                         self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                         self.batch_req_bins, 0, self.infer_adapter.a_scaling)
@@ -597,6 +616,10 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
+        else:
+            with torch.cuda.stream(self.stream1):
+                q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_),
+                        base_layer_weight.q_weight_)
             
         rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),

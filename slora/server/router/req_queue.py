@@ -142,7 +142,7 @@ class ReqQueue:
         else:
             return None
     
-    def generate_test_batch(self, current_batch:Batch, lora_ranks: dict[str, int], batch_size, ):
+    def generate_test_batch(self, current_batch:Batch, lora_ranks: dict[str, int], batch_size=1, token_num=1200, all_lora_same=False):
         if current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
             return None
         
@@ -153,17 +153,28 @@ class ReqQueue:
         aborted_count = 0
         
         lora_names = [name for name, _ in lora_ranks.items()]
+        
         rank_64_loras = [name for name, rank in lora_ranks.items() if rank == 64]
         rank_32_loras = [name for name, rank in lora_ranks.items() if rank == 32]
         rank_16_loras = [name for name, rank in lora_ranks.items() if rank == 16]
         rank_8_loras = [name for name, rank in lora_ranks.items() if rank == 8]
         
-        using_ranks_64_loras = random.choices(rank_64_loras, k=batch_size)
-        using_ranks_32_loras = random.choices(rank_32_loras, k=0)
-        using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras
+        if not all_lora_same:
+            using_ranks_64_loras = random.choices(rank_64_loras, k=0)
+            using_ranks_32_loras = random.choices(rank_32_loras, k=batch_size)
+            using_ranks_16_loras = random.choices(rank_16_loras, k=0)
+            using_ranks_8_loras = random.choices(rank_8_loras, k=0)
+            using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras + using_ranks_16_loras + using_ranks_8_loras
+        else:
+            using_ranks_64_loras = random.choices(rank_64_loras, k=0)
+            using_ranks_32_loras = random.choices(rank_32_loras, k=1)
+            using_ranks_16_loras = random.choices(rank_16_loras, k=0)
+            using_ranks_8_loras = random.choices(rank_8_loras, k=0)
+            using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras + using_ranks_16_loras + using_ranks_8_loras
+            using_lora_adapters *= batch_size
         
-        new_input_length = [500, 700]#[self._random_integer_divide(1200, batch_size)]
-        new_output_length = [2, 2]#[random.randint(8, 512) for i in range(batch_size)]
+        new_input_length = self._random_integer_divide(token_num, batch_size)
+        new_output_length = [2] * batch_size
                
         for idx in range(batch_size):
             prompt_ids = [1] + [15043] * (new_input_length[idx] - 1)

@@ -28,6 +28,7 @@ from slora.server.router.pets_req_queue import PETSReqQueue
 from slora.server.router.peft_req_queue import PEFTReqQueue
 
 import json
+import shutil
 
 def get_scheduler(input_params, adapter_dirs):
     if input_params.scheduler == "vtc_fair":
@@ -182,19 +183,32 @@ class RouterManager:
 
 
     async def loop_for_test_fwd(self):
+        print("Start warm up")
+        print(f"sync {self.input_params.use_sync}, no lora : {self.input_params.no_lora_compute}")
+        
+        self.req_queue.waiting_req_list = []
+        
         new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
         await self._step_prefill_test(new_batch)
         await self._decode_batch(self.running_batch)
         print("Decode end")
         print("warmup end\n")
-        ## Remove log file
-        
         removeLogFile()
-        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=2)
+        
+        print("Start test")
+        batch_size = 1
+        token_num = 1200
+        all_lora_same = False
+        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
         await self._step_prefill_test(new_batch)
         await self._decode_batch(self.running_batch)
         print("Decode end")
         print("Test finished")
+        #moveLogFile("twostream.txt")
+        #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}.txt")
+        #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}_multistream.txt")
+        removeLogFile()
+        
 
     no_request_started = False
     
@@ -585,16 +599,16 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
         )
     
         asyncio.run(router.wait_to_model_ready())
-        if input_params.profile:
-            asyncio.run(router.profile_prefill())
-        if input_params.scheduler == "pets" and input_params.profile:
-            router.req_queue.alpha = router.alpha_model
-            router.req_queue.beta = router.beta_model
-        elif input_params.scheduler == "pets":
-            # loading from file
-            cache_dir = os.path.expanduser("~/.cache/slora")
-            router.req_queue.alpha = AlphaModel.from_file(cache_dir+"/profile_results.pkl")
-            router.req_queue.beta = BetaModel.from_file(cache_dir+"/profile_results.pkl")
+        # if input_params.profile:
+        #     asyncio.run(router.profile_prefill())
+        # if input_params.scheduler == "pets" and input_params.profile:
+        #     router.req_queue.alpha = router.alpha_model
+        #     router.req_queue.beta = router.beta_model
+        # elif input_params.scheduler == "pets":
+        #     # loading from file
+        #     cache_dir = os.path.expanduser("~/.cache/slora")
+        #     router.req_queue.alpha = AlphaModel.from_file(cache_dir+"/profile_results.pkl")
+        #     router.req_queue.beta = BetaModel.from_file(cache_dir+"/profile_results.pkl")
     
     except Exception as e:
         import traceback
@@ -603,13 +617,15 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
         router.clean_up()
         raise
 
-    pipe_writer.send('init ok')
+    # pipe_writer.send('init ok')
     
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    #loop.create_task(router.loop_for_fwd())
-    loop.create_task(router.loop_for_test_fwd())
-    loop.run_until_complete(router.loop_for_netio_req())
+    # loop = asyncio.new_event_loop()
+    # asyncio.set_event_loop(loop)
+    # #loop.create_task(router.loop_for_fwd())
+    # ㅁloop.create_task(router.loop_for_test_fwd())
+    # loop.run_until_complete(router.loop_for_netio_req())
+    
+    asyncio.run(router.loop_for_test_fwd())
     return
 
 def writeTimeDict(data):
@@ -632,4 +648,13 @@ def removeLogFile():
     
     if os.path.exists(file_path):
         os.remove(file_path)
+        
+def moveLogFile(destination_path):
+    current_file_path = os.path.abspath(__file__)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+    file_path = f"{project_root}/Logs/log.txt"
+    destination_path = f"{project_root}/Logs/loraLatencyTest/rank32/{destination_path}"
+    
+    if os.path.exists(file_path):
+        shutil.move(file_path, destination_path)
         
