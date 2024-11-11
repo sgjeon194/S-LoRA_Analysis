@@ -10,7 +10,7 @@ from slora.models.peft.triton_kernel.lora.lora_prefill import lora_get_qkvo_fwd_
 from slora.server.router.model_infer.naive_infer_adapter import NaiveInferAdapter
 from slora.utils.infer_utils import mark_cost_time
 from slora.utils.infer_utils import calculate_time, mark_start, mark_end
-from slora._kernels import dispatch_bgmv
+from slora._kernels import dispatch_bgmv, stream_pass_test
 
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -591,20 +591,29 @@ class LoraUnorderedBatchInfer:
             #                                 infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
             #                                 0, self.max_lora_dim, self.max_b_seq_len)
             # else:
-            X = input_embs.view(-1, base_layer_infer.embed_dim_)
+            # stream_pass_test()
+            # stream_pass_test(self.stream1.cuda_stream)
+            default_stream = torch.cuda.current_stream()
+            # print(f"Default Stream: {default_stream.cuda_stream}")
+            
             with torch.cuda.stream(self.stream1):
-                q = torch.mm(X, # 1 * 409 #4096 * 4096
+                torch.cuda.set_stream(self.stream1)
+                # print(f"Base Stream: {self.stream1.cuda_stream}")
+                # print(f"Changed Stream: {torch.cuda.current_stream().cuda_stream}")
+                q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), # 1 * 409 #4096 * 4096
                          base_layer_weight.q_weight_)
                 # print(input_embs.view(-1, base_layer_infer.embed_dim_).shape)
                 # print(base_layer_weight.q_weight_.shape)
                 # q = input_embs.view(-1, base_layer_infer.embed_dim_) @ base_layer_weight.q_weight_
             with torch.cuda.stream(self.stream2):
-                dispatch_bgmv(delta_qA, X, 
+                torch.cuda.set_stream(self.stream2)
+                # print(f"Shrink Stream: {self.stream2.cuda_stream}")
+                # print(f"Changed Stream: {torch.cuda.current_stream().cuda_stream}")
+                dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                         self.key_buffer[layer_id],
                         self.infer_adapter.a_start, self.infer_adapter.a_len, 
-                        self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling,
-                        self.stream2.cuda_stream)
-            
+                        self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling, self.stream2.cuda_stream)
+                
             self.stream1.synchronize()
             self.stream2.synchronize()
             dispatch_bgmv(q, delta_qA, self.value_buffer[layer_id], self.infer_adapter.a_start, 

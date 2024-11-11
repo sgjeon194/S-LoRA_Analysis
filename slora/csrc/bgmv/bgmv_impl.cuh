@@ -171,6 +171,7 @@ __global__ void bgmv_multi_lora_rank_expand_kernel(T *__restrict__ Y, const T *_
                                                    const T *__restrict__ W,
                                                    const int64_t *__restrict__ start_indicies,
                                                    const int64_t *__restrict__ lora_ranks,
+
                                                    const int64_t *__restrict__ loc_indicies,
                                                    const int64_t *__restrict__ indicies,
                                                    int64_t qkvo,
@@ -243,8 +244,11 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                  const int64_t *__restrict__ indicies,
                  int64_t qkvo,
                  int64_t batch_size,
-                 const T *__restrict__ lora_scales)
+                 const T *__restrict__ lora_scales,
+                 uintptr_t stream)
 {
+
+    cudaStream_t cuda_stream = reinterpret_cast<cudaStream_t>(stream);
     size_t vec_size = 16 / sizeof(T); // 항상 8
     if constexpr (feat_in < feat_out)
     {
@@ -263,8 +267,9 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         assert(feat_in % (vec_size) == 0);
         dim3 nblks(feat_out, batch_size);
         // printf("shrink - block dim : (%lu %lu %lu) - thread dim (32, 4, 1)\n", nblks.x, nblks.y, nblks.z);
+        printf("%ld\n", stream);
         dim3 nthrs(32, 4);
-        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
+        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
     }
 }
 
@@ -275,7 +280,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         const int64_t *__restrict__ lora_ranks,                              \
         const int64_t *__restrict__ loc_indicies,                            \
         const int64_t *__restrict__ indicies, int64_t qkvo,                  \
-        int64_t batch_size, const T *__restrict__ lora_scales);
+        int64_t batch_size, const T *__restrict__ lora_scales, uint64_t stream);
 
 #define INST_BGMV_TWOSIDE(T, narrow, wide) \
     INST_BGMV(narrow, wide, T)             \
