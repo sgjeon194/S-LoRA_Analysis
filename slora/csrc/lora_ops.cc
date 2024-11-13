@@ -110,11 +110,13 @@ namespace
         CHECK_EQ(y.size(0), x.size(0));
         bool ok = false;
 
+        // printf("in %lu, out %lu\n", h_in, h_out);
+
         if (stream == 0)
         {
             auto currentStream = c10::cuda::getDefaultCUDAStream(0);
             stream = reinterpret_cast<uintptr_t>(currentStream.stream());
-            printf("%ld", stream);
+            // printf("%ld", stream);
         }
 
         if (h_in < 65536 && h_out < 65536)

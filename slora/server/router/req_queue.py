@@ -3,7 +3,7 @@ import asyncio
 import numpy as np
 from typing import List
 from ..io_struct import Batch, Req
-from slora.utils.infer_utils import  calculate_time
+from slora.utils.infer_utils import calculate_time
 import random
 
 from ..sampling_params import SamplingParams

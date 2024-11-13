@@ -267,7 +267,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         assert(feat_in % (vec_size) == 0);
         dim3 nblks(feat_out, batch_size);
         // printf("shrink - block dim : (%lu %lu %lu) - thread dim (32, 4, 1)\n", nblks.x, nblks.y, nblks.z);
-        printf("%ld\n", stream);
+        // printf("%ld\n", stream);
         dim3 nthrs(32, 4);
         bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
     }
