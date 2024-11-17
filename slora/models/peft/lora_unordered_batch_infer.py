@@ -640,8 +640,8 @@ class LoraUnorderedBatchInfer:
 
         # k (S, H)
         base_start_K = time.time()
-        torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
-                 out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
+        # torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
+        #          out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_K = 1000 * (time.time() - base_start_K)
@@ -649,34 +649,45 @@ class LoraUnorderedBatchInfer:
         if not no_lora_compute:
             delta_kA = self.delta[1]
             lora_start_K = time.time()
-            if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
-            # if 1 == 0:
-                lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
-                                         self.key_buffer[layer_id].view(-1, self.kv_embed_dim), 
-                                         delta_kA, self.infer_adapter.a_loc, self.infer_adapter.a_start, 
-                                         self.infer_adapter.a_len, infer_state.b_start_loc, 
-                                         infer_state.b_seq_len, self.req_bins, base_layer_infer.embed_dim_, 
-                                         1, self.max_lora_dim, self.max_b_seq_len)
-                lora_get_qkvo_fwd_expand(delta_kA, self.value_buffer[layer_id].view(-1, self.kv_embed_dim), 
-                                         cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
-                                         self.infer_adapter.a_scaling, 
-                                         self.infer_adapter.a_loc, self.infer_adapter.a_start, 
-                                         self.infer_adapter.a_len, infer_state.b_start_loc, 
-                                         infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
-                                         1, self.max_lora_dim, self.max_b_seq_len)
-            else:
+            # if self.max_b_seq_len >= 200 and self.max_lora_dim >= 64  and len(infer_state.b_seq_len) >= 2:
+            # # if 1 == 0:
+            #     lora_get_qkvo_fwd_shrink(input_embs.view(-1, base_layer_infer.embed_dim_), 
+            #                              self.key_buffer[layer_id].view(-1, self.kv_embed_dim), 
+            #                              delta_kA, self.infer_adapter.a_loc, self.infer_adapter.a_start, 
+            #                              self.infer_adapter.a_len, infer_state.b_start_loc, 
+            #                              infer_state.b_seq_len, self.req_bins, base_layer_infer.embed_dim_, 
+            #                              1, self.max_lora_dim, self.max_b_seq_len)
+            #     lora_get_qkvo_fwd_expand(delta_kA, self.value_buffer[layer_id].view(-1, self.kv_embed_dim), 
+            #                              cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
+            #                              self.infer_adapter.a_scaling, 
+            #                              self.infer_adapter.a_loc, self.infer_adapter.a_start, 
+            #                              self.infer_adapter.a_len, infer_state.b_start_loc, 
+            #                              infer_state.b_seq_len, self.req_bins, self.kv_embed_dim, 
+            #                              1, self.max_lora_dim, self.max_b_seq_len)
+            # else:
+            
+            with torch.cuda.stream(self.stream1):
+                torch.cuda.set_stream(self.stream1)
+                torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
+                    out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
+            with torch.cuda.stream(self.stream2):
+                torch.cuda.set_stream(self.stream2)
                 dispatch_bgmv(delta_kA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                             self.key_buffer[layer_id], 
                             self.infer_adapter.a_start, self.infer_adapter.a_len, 
-                            self.infer_adapter.a_loc, self.batch_req_bins, 1, self.infer_adapter.a_scaling)
-                dispatch_bgmv(cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
-                            delta_kA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
-                            self.infer_adapter.a_len, self.infer_adapter.a_loc, 
-                            self.batch_req_bins, 1, self.infer_adapter.a_scaling)
+                            self.infer_adapter.a_loc, self.batch_req_bins, 1, self.infer_adapter.a_scaling, self.stream2.cuda_stream)
+                
+            dispatch_bgmv(cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
+                        delta_kA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
+                        self.infer_adapter.a_len, self.infer_adapter.a_loc, 
+                        self.batch_req_bins, 1, self.infer_adapter.a_scaling)
             # delta_kA = None
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_K = 1000 * (time.time() - lora_start_K)
+        else:
+            torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
+                    out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
             
         rotary_emb_k_start = time.time()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
