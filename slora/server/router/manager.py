@@ -27,6 +27,8 @@ from slora.server.router.vtc_req_queue import VTCReqQueue
 from slora.server.router.pets_req_queue import PETSReqQueue
 from slora.server.router.peft_req_queue import PEFTReqQueue
 
+from slora._kernels import dispatch_bgmv, stream_pass_test
+
 import json
 import shutil
 
@@ -356,11 +358,6 @@ class RouterManager:
             await self._filter_runing_batch()
             print("Prefill end")
             self.has_wait_tokens = 0
-        
-    # async def _step_decode_test(self):
-    #     await self._decode_batch(self.running_batch)
-    #     print("Decode end")
-
         
 
     async def _init_batch(self, batch: Batch):
