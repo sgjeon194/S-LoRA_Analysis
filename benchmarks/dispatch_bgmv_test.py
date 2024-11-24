@@ -7,7 +7,7 @@ stream2 = torch.cuda.Stream()
 
 layer_num = 5
 
-input_size = 1200
+input_size = 4098
 rank = 32
 
 X = []
@@ -19,6 +19,8 @@ a_loc           = []
 batch_req_bins  = []
 a_scaling       = []
 
+base_result = []
+lora_result = []
 
 for i in range(layer_num):
     X.append(torch.randn(input_size, 4096, device=device, dtype=torch.float16))
@@ -38,7 +40,7 @@ torch.cuda.nvtx.mark("start")
 for i in range(layer_num):
     with torch.cuda.stream(stream1): 
         # (inputsize, 4096) * (4096, 4096)
-        torch.mm(X[i], W[i])
+        base_result.append(torch.mm(X[i], W[i]))
     with torch.cuda.stream(stream2):
         # (inputsize, 4096) * (4096, max_rank)
-        dispatch_bgmv(delta_qA, X[i], A[i], a_start[i], a_len[i], a_loc[i], batch_req_bins[i], 0, a_scaling[i], stream2.cuda_stream)
+        lora_result.append(dispatch_bgmv(delta_qA, X[i], A[i], a_start[i], a_len[i], a_loc[i], batch_req_bins[i], 0, a_scaling[i], stream2.cuda_stream))
