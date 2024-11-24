@@ -280,6 +280,7 @@ class ModelRpcServer(rpyc.Service):
             else:
                 engine = LoraUnorderedBatchInfer(self.model, adapters, self.input_params.use_sync, infer_adapter=self.infer_adapter)
             kwargs["no_lora_compute"] = self.input_params.no_lora_compute
+            kwargs["use_multistream"] = self.input_params.use_multistream
             # kwargs["no_lora_copy"] = self.input_params.no_lora_copy 
 
         engine.timeDict["request_num"] = len(batch.requests)

@@ -576,7 +576,8 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
                                bmm=args.bmm,
                                no_lora=args.no_lora,
                                fair_weights=args.fair_weights,
-                               use_sync = args.use_sync
+                               use_sync = args.use_sync,
+                               use_multistream = args.use_multistream
                               )
 
     try:

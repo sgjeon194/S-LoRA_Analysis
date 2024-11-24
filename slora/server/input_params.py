@@ -49,7 +49,8 @@ class InputParams:
         no_lora,
         # fairness
         fair_weights,
-        use_sync
+        use_sync,
+        use_multistream
     ) -> None:
         self.max_req_total_len = max_req_total_len
         self.max_total_token_num = max_total_token_num
@@ -79,5 +80,6 @@ class InputParams:
         
         self.fair_weights = fair_weights
         self.use_sync = use_sync
+        self.use_multistream = use_multistream
         return
  
