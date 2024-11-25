@@ -128,9 +128,10 @@ class LoraUnorderedBatchInfer:
         if self.use_sync:
             torch.cuda.synchronize()
         
-        # print(f"\t<Prefill end> --- time : {(prefill_end_time - prefill_start_time):0.8} ms -------------")
         #self.timeDict["total_time"] = (prefill_end_time - prefill_start_time)
         self.timeDict["total_time"] = 1000 * (time.time() - prefill_start_time)
+        print(f"\t<Prefill end> --- time : {1000 * (time.time() - prefill_start_time):0.8} ms -------------")
+
 
         return predict_logics
 
@@ -178,8 +179,8 @@ class LoraUnorderedBatchInfer:
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
         if self.use_sync:
             torch.cuda.synchronize()
-        # print(f"\t<Decode end> --- time : {(decode_end_time - decode_start_time):0.8} ms -------------")
         self.timeDict["total_time"] = 1000 * (time.time() - decode_start_time)
+        print(f"\t<Decode end> --- time : {1000 * (time.time() - decode_start_time):0.8} ms -------------")
         return predict_logics
 
 
@@ -191,6 +192,7 @@ class LoraUnorderedBatchInfer:
         self.timeDict["layers"] = []
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_context_forward(i, input_embs, infer_state, no_lora_compute)
+
         predict_logics = self.base_model.post_infer.token_forward(
                 input_embs, infer_state, self.base_model.pre_post_weight, return_logics=True)
         return predict_logics
@@ -459,7 +461,7 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 0, self.infer_adapter.a_scaling)
             # delta_qA = None
             # mark_end("get_q")
-            if self.use_sync:
+            if self.use_sync or self.use_multistream:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
             
@@ -507,7 +509,7 @@ class LoraUnorderedBatchInfer:
             # delta_kA = None
             # mark_end("get_k")
             
-            if self.use_sync:
+            if self.use_sync or self.use_multistream:
                 torch.cuda.synchronize()
             lora_time_K = 1000 * (time.time() - lora_start_K)
             
@@ -535,7 +537,7 @@ class LoraUnorderedBatchInfer:
             lora_start_V = time.time()
             delta_vA = self.delta[2]
             if self.use_multistream:
-                with torch.cuda.stream(StreamPoolManager.instance().base_model_stream):
+                with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
                     dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
@@ -647,10 +649,9 @@ class LoraUnorderedBatchInfer:
             
                 # Batch gather matrix vector multiplication
             # delta_qA = None
-            if self.use_sync:
+            if self.use_sync or self.use_multistream:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
-        
             
         rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
@@ -711,7 +712,7 @@ class LoraUnorderedBatchInfer:
                         self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                         self.batch_req_bins, 1, self.infer_adapter.a_scaling)
             # delta_kA = None
-            if self.use_sync:
+            if self.use_sync or self.use_multistream:
                 torch.cuda.synchronize()
             lora_time_K = 1000 * (time.time() - lora_start_K)
 
@@ -877,7 +878,7 @@ class LoraUnorderedBatchInfer:
         else:
             o = torch.mm(input.view(-1, base_layer_infer.embed_dim_),
                           base_layer_weight.o_weight_)
-        
+            
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_O = 1000 * (time.time() - base_start_O)
@@ -919,7 +920,6 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_O = 1000 * (time.time() - lora_start_O)
-            
         # print(f"\t\tBase O : {base_time_O:.8f} ms | LoRA O : {lora_time_O:.8f} ms")
         
         self.get_o_timeDict = {}

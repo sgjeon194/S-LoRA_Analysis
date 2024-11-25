@@ -31,6 +31,7 @@ from slora._kernels import dispatch_bgmv, stream_pass_test
 
 import json
 import shutil
+from slora.server.router.stream_pool_manager import StreamPoolManager
 
 def get_scheduler(input_params, adapter_dirs):
     if input_params.scheduler == "vtc_fair":
@@ -99,6 +100,7 @@ class RouterManager:
 
         self.time_dict_list = []
         self.warm_up_finished = False
+        createStreamPoolManagerInstance = StreamPoolManager.instance()
 
     async def wait_to_model_ready(self):
         print("WAIT TO MODEL READY")
@@ -201,11 +203,13 @@ class RouterManager:
         batch_size = 1
         token_num = 1200
         all_lora_same = False
+        start = time.time()
         new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
         await self._step_prefill_test(new_batch)
         await self._decode_batch(self.running_batch)
         print("Decode end")
         print("Test finished")
+        print(f"{1000 * (time.time() - start)} ms")
         #moveLogFile("twostream.txt")
         #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}.txt")
         #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}_multistream.txt")
@@ -619,11 +623,11 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
     
     # loop = asyncio.new_event_loop()
     # asyncio.set_event_loop(loop)
-    # #loop.create_task(router.loop_for_fwd())
-    # ㅁloop.create_task(router.loop_for_test_fwd())
+    # loop.create_task(router.loop_for_fwd())
     # loop.run_until_complete(router.loop_for_netio_req())
     
     asyncio.run(router.loop_for_test_fwd())
+    
     return
 
 def writeTimeDict(data):
