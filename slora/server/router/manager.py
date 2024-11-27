@@ -31,6 +31,7 @@ from slora._kernels import dispatch_bgmv, stream_pass_test
 
 import json
 import shutil
+import nvtx
 from slora.server.router.stream_pool_manager import StreamPoolManager
 
 def get_scheduler(input_params, adapter_dirs):
@@ -192,21 +193,25 @@ class RouterManager:
         
         self.req_queue.waiting_req_list = []
         
-        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
-        await self._step_prefill_test(new_batch)
-        await self._decode_batch(self.running_batch)
+        for i in range(10):
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
+            await self._step_prefill_test(new_batch)
+            await self._decode_batch(self.running_batch)
+            
         print("Decode end")
         print("warmup end\n")
         removeLogFile()
         
         print("Start test")
         batch_size = 1
-        token_num = 1200
+        token_num = 1024 * batch_size
         all_lora_same = False
         start = time.time()
-        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
-        await self._step_prefill_test(new_batch)
-        await self._decode_batch(self.running_batch)
+        with nvtx.annotate("Real Run"):
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
+            await self._step_prefill_test(new_batch)
+            await self._decode_batch(self.running_batch)
+            
         print("Decode end")
         print("Test finished")
         print(f"{1000 * (time.time() - start)} ms")

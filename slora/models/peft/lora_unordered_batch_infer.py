@@ -260,6 +260,7 @@ class LoraUnorderedBatchInfer:
         # mark_end("token_ffn")
         if self.use_sync:
             torch.cuda.synchronize()
+        
         ffn_time = 1000 * (time.time() - ffn_start)
         
         self.timeDict["layers"][-1]["total_attention_time"] = attention_time
@@ -421,15 +422,14 @@ class LoraUnorderedBatchInfer:
         base_layer_weight = base_model.trans_layers_weight[layer_id]
         base_layer_infer = base_model.layers_infer[layer_id]
 
-        #no_lora_compute = True
-
         # q (bs, H)
         base_start_Q = time.time()
         if self.use_multistream:
             with torch.cuda.stream(StreamPoolManager.instance().base_model_stream):
                 q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
         else:
-            q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
+            with torch.cuda.stream(torch.cuda.default_stream()):
+                q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_Q = 1000 * (time.time() - base_start_Q)
@@ -444,8 +444,8 @@ class LoraUnorderedBatchInfer:
             lora_start_Q = time.time()
             delta_qA = self.delta[0]
             if self.use_multistream:
-                with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                    dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                #with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
+                dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.req_bins, 0, self.infer_adapter.a_scaling,
@@ -461,7 +461,7 @@ class LoraUnorderedBatchInfer:
                           self.req_bins, 0, self.infer_adapter.a_scaling)
             # delta_qA = None
             # mark_end("get_q")
-            if self.use_sync or self.use_multistream:
+            if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
             
@@ -491,8 +491,7 @@ class LoraUnorderedBatchInfer:
             delta_kA = self.delta[1]
             lora_start_Q = time.time()
             if self.use_multistream:
-                with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                    dispatch_bgmv(delta_kA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                dispatch_bgmv(delta_kA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.req_bins, 1, self.infer_adapter.a_scaling,
@@ -537,17 +536,21 @@ class LoraUnorderedBatchInfer:
             lora_start_V = time.time()
             delta_vA = self.delta[2]
             if self.use_multistream:
-                with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                    dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.req_bins, 2, self.infer_adapter.a_scaling,
                                 StreamPoolManager.instance().lora_stream.cuda_stream)
             else:
-                dispatch_bgmv(cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
-                          delta_vA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
-                          self.infer_adapter.a_len, self.infer_adapter.a_loc, 
-                          self.req_bins, 2, self.infer_adapter.a_scaling)
+                dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                                self.key_buffer[layer_id], 
+                                self.infer_adapter.a_start, self.infer_adapter.a_len, 
+                                self.infer_adapter.a_loc, self.req_bins, 2, self.infer_adapter.a_scaling)
+                
+            dispatch_bgmv(cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_), 
+                        delta_vA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
+                        self.infer_adapter.a_len, self.infer_adapter.a_loc, 
+                        self.req_bins, 2, self.infer_adapter.a_scaling)
             # delta_vA = None
             # mark_end("get_v")
             if self.use_sync:
@@ -630,9 +633,7 @@ class LoraUnorderedBatchInfer:
             # stream_pass_test()
             # stream_pass_test(self.stream1.cuda_stream)
                 if self.use_multistream:
-                    with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                        torch.cuda.set_stream(StreamPoolManager.instance().lora_stream)
-                        dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                    dispatch_bgmv(delta_qA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                             self.key_buffer[layer_id],
                             self.infer_adapter.a_start, self.infer_adapter.a_len, 
                             self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling,
@@ -696,8 +697,7 @@ class LoraUnorderedBatchInfer:
                                          1, self.max_lora_dim, self.max_b_seq_len)
             else:
                 if self.use_multistream:
-                    with torch.cuda.stream(StreamPoolManager.instance().lora_stream): 
-                        dispatch_bgmv(delta_kA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                    dispatch_bgmv(delta_kA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.batch_req_bins, 1, self.infer_adapter.a_scaling,
@@ -756,8 +756,7 @@ class LoraUnorderedBatchInfer:
                                          2, self.max_lora_dim, self.max_b_seq_len)
             else:
                 if self.use_multistream:
-                    with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                        dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
+                    dispatch_bgmv(delta_vA, input_embs.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.batch_req_bins, 2, self.infer_adapter.a_scaling,
@@ -833,8 +832,7 @@ class LoraUnorderedBatchInfer:
             delta_oA = self.delta[0]
             lora_start_O = time.time()
             if self.use_multistream:
-                with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                    dispatch_bgmv(delta_oA, input.view(-1, base_layer_infer.embed_dim_), 
+                dispatch_bgmv(delta_oA, input.view(-1, base_layer_infer.embed_dim_), 
                                 self.key_buffer[layer_id], 
                                 self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                 self.infer_adapter.a_loc, self.req_bins, 3, self.infer_adapter.a_scaling,
@@ -902,8 +900,7 @@ class LoraUnorderedBatchInfer:
                                          3, self.max_lora_dim, self.max_b_seq_len)
             else:
                 if self.use_multistream:
-                    with torch.cuda.stream(StreamPoolManager.instance().lora_stream):
-                        dispatch_bgmv(delta_oA, input.view(-1, base_layer_infer.embed_dim_), 
+                    dispatch_bgmv(delta_oA, input.view(-1, base_layer_infer.embed_dim_), 
                                     self.key_buffer[layer_id], 
                                     self.infer_adapter.a_start, self.infer_adapter.a_len, 
                                     self.infer_adapter.a_loc, self.batch_req_bins, 3, self.infer_adapter.a_scaling,
@@ -927,4 +924,3 @@ class LoraUnorderedBatchInfer:
         if not no_lora_compute:
             self.get_o_timeDict["o_lora"] = lora_time_O
         return o
-

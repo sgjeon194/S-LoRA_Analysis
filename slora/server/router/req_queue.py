@@ -107,9 +107,10 @@ class ReqQueue:
         batch_size = 1 #min(random.randint(1, len(self.waiting_req_list)), 32)
         total_batch_token_length = 1200
         
-        token_per_req = total_batch_token_length // batch_size + 1
-        remain = batch_size - total_batch_token_length % batch_size
-        new_input_length = [a - b for a, b in zip([token_per_req for i in range(batch_size)], [1 if i < remain else 0 for i in range(batch_size)])]
+        new_input_length = self._equal_integer_divide(total_batch_token_length, batch_size)
+        # token_per_req = total_batch_token_length // batch_size + 1
+        # remain = batch_size - total_batch_token_length % batch_size
+        # new_input_length = [a - b for a, b in zip([token_per_req for i in range(batch_size)], [1 if i < remain else 0 for i in range(batch_size)])]
         
         rank_64_loras = [name for name, rank in lora_ranks.items() if rank == 8]
         using_loras = random.choices(rank_64_loras, k=1)
@@ -173,7 +174,7 @@ class ReqQueue:
             using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras + using_ranks_16_loras + using_ranks_8_loras
             using_lora_adapters *= batch_size
         
-        new_input_length = self._random_integer_divide(token_num, batch_size)
+        new_input_length = self._equal_integer_divide(token_num, batch_size)
         new_output_length = [2] * batch_size
                
         for idx in range(batch_size):
@@ -254,6 +255,13 @@ class ReqQueue:
         else:
             return None
 
+
+    def _equal_integer_divide(self, total, n):
+        token_per_req = total // n + 1
+        remain = n - total % n
+        new_input_length = [a - b for a, b in zip([token_per_req for i in range(n)], [1 if i < remain else 0 for i in range(n)])]
+        return new_input_length
+        
 
     def _random_integer_divide(self, total, n):
         min_value = 8
