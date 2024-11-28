@@ -15,6 +15,5 @@ class SingletonInstance:
 
 class StreamPoolManager(SingletonInstance):
     def __init__(self):
-        self.base_model_stream = torch.cuda.Stream()
         self.lora_stream = torch.cuda.Stream()
     
