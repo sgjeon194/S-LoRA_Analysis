@@ -193,8 +193,12 @@ class RouterManager:
         
         self.req_queue.waiting_req_list = []
         
+        batch_size = 8
+        prompt_size = 1024 * batch_size
+        token_num = 20
+        all_lora_same = False
         for i in range(10):
-            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, prompt_size=prompt_size, token_num=2, all_lora_same=all_lora_same)
             await self._step_prefill_test(new_batch)
             await self._decode_batch(self.running_batch)
             
@@ -203,14 +207,14 @@ class RouterManager:
         removeLogFile()
         
         print("Start test")
-        batch_size = 1
-        token_num = 1024 * batch_size
-        all_lora_same = False
         start = time.time()
         with nvtx.annotate("Real Run"):
-            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, prompt_size=prompt_size, token_num=token_num, all_lora_same=all_lora_same)
             await self._step_prefill_test(new_batch)
-            await self._decode_batch(self.running_batch)
+            decode_start = time.time()
+            for i in range(token_num - 1):
+                await self._decode_batch(self.running_batch)
+            print(f"Decode end : {1000 * (time.time() - decode_start)}")
             
         print("Decode end")
         print("Test finished")

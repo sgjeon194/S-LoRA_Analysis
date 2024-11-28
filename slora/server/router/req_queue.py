@@ -143,7 +143,7 @@ class ReqQueue:
         else:
             return None
     
-    def generate_test_batch(self, current_batch:Batch, lora_ranks: dict[str, int], batch_size=1, token_num=1200, all_lora_same=False):
+    def generate_test_batch(self, current_batch:Batch, lora_ranks: dict[str, int], batch_size=1, prompt_size=1200, token_num=2, all_lora_same=False):
         if current_batch is not None and len(current_batch.reqs) >= self.running_max_req_size:
             return None
         
@@ -174,8 +174,8 @@ class ReqQueue:
             using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras + using_ranks_16_loras + using_ranks_8_loras
             using_lora_adapters *= batch_size
         
-        new_input_length = self._equal_integer_divide(token_num, batch_size)
-        new_output_length = [2] * batch_size
+        new_input_length = self._equal_integer_divide(prompt_size, batch_size)
+        new_output_length = [token_num] * batch_size
                
         for idx in range(batch_size):
             prompt_ids = [1] + [15043] * (new_input_length[idx] - 1)
