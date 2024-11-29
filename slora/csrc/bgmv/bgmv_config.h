@@ -1,11 +1,14 @@
 #pragma once
 
+#include <cstdint>
+
 template <int feat_in, int feat_out, typename T>
-void bgmv_kernel(T* __restrict__ Y, const T* __restrict__ X,
-                 const T* __restrict__ W, const int64_t* __restrict__ start_indicies,
-                 const int64_t* __restrict__ lora_ranks, const int64_t* __restrict__ loc_indicies,
-                 const int64_t* __restrict__ indicies, int64_t qkvo, int64_t batch_size,
-                 const T* __restrict__ lora_scales);
+void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
+                 const T *__restrict__ W, const int64_t *__restrict__ start_indicies,
+                 const int64_t *__restrict__ lora_ranks, const int64_t *__restrict__ loc_indicies,
+                 const int64_t *__restrict__ indicies, int64_t qkvo, int64_t batch_size,
+                 const T *__restrict__ lora_scales,
+                 uintptr_t stream);
 
 // clang-format off
 

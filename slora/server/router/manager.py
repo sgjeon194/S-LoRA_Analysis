@@ -27,8 +27,12 @@ from slora.server.router.vtc_req_queue import VTCReqQueue
 from slora.server.router.pets_req_queue import PETSReqQueue
 from slora.server.router.peft_req_queue import PEFTReqQueue
 
+from slora._kernels import dispatch_bgmv, stream_pass_test
+
 import json
 import shutil
+import nvtx
+from slora.server.router.stream_pool_manager import StreamPoolManager
 
 def get_scheduler(input_params, adapter_dirs):
     if input_params.scheduler == "vtc_fair":
@@ -97,6 +101,7 @@ class RouterManager:
 
         self.time_dict_list = []
         self.warm_up_finished = False
+        createStreamPoolManagerInstance = StreamPoolManager.instance()
 
     async def wait_to_model_ready(self):
         print("WAIT TO MODEL READY")
@@ -188,22 +193,32 @@ class RouterManager:
         
         self.req_queue.waiting_req_list = []
         
-        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=1)
-        await self._step_prefill_test(new_batch)
-        await self._decode_batch(self.running_batch)
+        batch_size = 8
+        prompt_size = 1024 * batch_size
+        token_num = 20
+        all_lora_same = False
+        for i in range(10):
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, prompt_size=prompt_size, token_num=2, all_lora_same=all_lora_same)
+            await self._step_prefill_test(new_batch)
+            await self._decode_batch(self.running_batch)
+            
         print("Decode end")
         print("warmup end\n")
         removeLogFile()
         
         print("Start test")
-        batch_size = 1
-        token_num = 1200
-        all_lora_same = False
-        new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, token_num=token_num, all_lora_same=all_lora_same)
-        await self._step_prefill_test(new_batch)
-        await self._decode_batch(self.running_batch)
+        start = time.time()
+        with nvtx.annotate("Real Run"):
+            new_batch = self.req_queue.generate_test_batch(self.running_batch, self.lora_ranks, batch_size=batch_size, prompt_size=prompt_size, token_num=token_num, all_lora_same=all_lora_same)
+            await self._step_prefill_test(new_batch)
+            decode_start = time.time()
+            for i in range(token_num - 1):
+                await self._decode_batch(self.running_batch)
+            print(f"Decode end : {1000 * (time.time() - decode_start)}")
+            
         print("Decode end")
         print("Test finished")
+        print(f"{1000 * (time.time() - start)} ms")
         #moveLogFile("twostream.txt")
         #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}.txt")
         #moveLogFile(f"batch_{batch_size}_token_{token_num}_useSync_{self.input_params.use_sync}_lora_{not self.input_params.no_lora_compute}_multistream.txt")
@@ -356,11 +371,6 @@ class RouterManager:
             await self._filter_runing_batch()
             print("Prefill end")
             self.has_wait_tokens = 0
-        
-    # async def _step_decode_test(self):
-    #     await self._decode_batch(self.running_batch)
-    #     print("Decode end")
-
         
 
     async def _init_batch(self, batch: Batch):
@@ -579,7 +589,8 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
                                bmm=args.bmm,
                                no_lora=args.no_lora,
                                fair_weights=args.fair_weights,
-                               use_sync = args.use_sync
+                               use_sync = args.use_sync,
+                               use_multistream = args.use_multistream
                               )
 
     try:
@@ -621,11 +632,11 @@ def start_router_process(args, router_port, detokenization_port, model_rpc_ports
     
     # loop = asyncio.new_event_loop()
     # asyncio.set_event_loop(loop)
-    # #loop.create_task(router.loop_for_fwd())
-    # ㅁloop.create_task(router.loop_for_test_fwd())
+    # loop.create_task(router.loop_for_fwd())
     # loop.run_until_complete(router.loop_for_netio_req())
     
     asyncio.run(router.loop_for_test_fwd())
+    
     return
 
 def writeTimeDict(data):
