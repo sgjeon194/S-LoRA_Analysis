@@ -568,7 +568,7 @@ class LoraUnorderedBatchInfer:
         base_start_Q = time.time()
         
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), 
-                base_layer_weight.q_weight_) # (1, 4096) * (4096, 4096)
+                base_layer_weight.q_weight_) # (input_size, 4096) * (4096, 4096) = (input_size, 4096)
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_Q = 1000 * (time.time() -  base_start_Q)
@@ -601,11 +601,13 @@ class LoraUnorderedBatchInfer:
                         self.infer_adapter.a_start, self.infer_adapter.a_len, 
                         self.infer_adapter.a_loc, self.batch_req_bins, 0, self.infer_adapter.a_scaling,
                         StreamPoolManager.instance().lora_stream.cuda_stream if self.use_multistream else torch.cuda.default_stream().cuda_stream)
+                # (input_size, 4096) * (4096, rank) = (input_size, rank)
 
                 dispatch_bgmv(q, delta_qA, self.value_buffer[layer_id], self.infer_adapter.a_start, 
                         self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                         self.batch_req_bins, 0, self.infer_adapter.a_scaling)
-            
+                # (input_size, rank) * (rank, 4096) = (input_size, 4096)
+                
                 # Batch gather matrix vector multiplication
             # delta_qA = None
             if self.use_sync:
