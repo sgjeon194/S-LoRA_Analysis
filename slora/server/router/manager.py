@@ -193,8 +193,8 @@ class RouterManager:
         
         self.req_queue.waiting_req_list = []
         
-        batch_size = 8
-        prompt_size = 1024 * batch_size
+        batch_size = 2
+        prompt_size = 1200 * batch_size
         token_num = 20
         all_lora_same = False
         for i in range(10):
