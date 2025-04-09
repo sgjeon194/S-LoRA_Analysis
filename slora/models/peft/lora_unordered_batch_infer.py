@@ -423,12 +423,12 @@ class LoraUnorderedBatchInfer:
         base_layer_infer = base_model.layers_infer[layer_id]
 
         # q (bs, H)
+        torch.cuda.nvtx.range_push("Q")
         base_start_Q = time.time()
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.q_weight_)
         if self.use_sync:
             torch.cuda.synchronize()
         base_time_Q = 1000 * (time.time() - base_start_Q)
-
         # print(f"\t\tBase_layer embed_dim : {base_layer_infer.embed_dim_}")
         # print(f"\t\tQ's size : {q.shape}, is on cuda? {q.is_cuda}")
         # @TODO: fix me, filter requests querying only base model
@@ -452,15 +452,19 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
+        torch.cuda.nvtx.range_pop()
             
+        torch.cuda.nvtx.range_push("Rotary emb Q")
         rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                           infer_state.position_cos, infer_state.position_sin)
         if self.use_sync:
             torch.cuda.synchronize()
         rotary_emb_q_time = 1000 * (time.time() - rotary_emb_q_start)
+        torch.cuda.nvtx.range_pop()
 
         # k (bs, H)
+        torch.cuda.nvtx.range_push("K")
         base_start_K = time.time()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
                 out=cache_k.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
@@ -490,14 +494,18 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_K = 1000 * (time.time() - lora_start_K)
-            
+        torch.cuda.nvtx.range_pop()
+        
+        torch.cuda.nvtx.range_push("Rotary emb K")
         rotary_emb_k_start = time.time()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
         if self.use_sync:
             torch.cuda.synchronize()
         rotary_emb_k_time = 1000 * (time.time() - rotary_emb_k_start)
+        torch.cuda.nvtx.range_pop()
 
         # v (bs, H)
+        torch.cuda.nvtx.range_push("V")
         base_start_V = time.time()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
                  out=cache_v.view(-1, base_model.tp_k_head_num_ * base_model.head_dim_))
@@ -524,6 +532,7 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_V = 1000 * (time.time() - lora_start_V)
+        torch.cuda.nvtx.range_pop()
             
         #printstart = time.time()
         # print(f"\t\tBase Q : {base_time_Q:.8f} ms | LoRA Q : {lora_time_Q:.8f} ms")
@@ -567,6 +576,7 @@ class LoraUnorderedBatchInfer:
         
         base_start_Q = time.time()
         
+        torch.cuda.nvtx.range_push("Q")
         q = torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), 
                 base_layer_weight.q_weight_) # (input_size, 4096) * (4096, 4096) = (input_size, 4096)
         if self.use_sync:
@@ -607,21 +617,25 @@ class LoraUnorderedBatchInfer:
                         self.infer_adapter.a_len, self.infer_adapter.a_loc, 
                         self.batch_req_bins, 0, self.infer_adapter.a_scaling)
                 # (input_size, rank) * (rank, 4096) = (input_size, 4096)
-                
+            
                 # Batch gather matrix vector multiplication
             # delta_qA = None
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_Q = 1000 * (time.time() - lora_start_Q)
-            
+        torch.cuda.nvtx.range_pop()
+        
+        torch.cuda.nvtx.range_push("Rotary emb Q")
         rotary_emb_q_start = time.time()
         rotary_emb_fwd(q.view(-1, base_layer_infer.tp_q_head_num_, base_model.head_dim_),
                        infer_state.position_cos, infer_state.position_sin)
         if self.use_sync:
             torch.cuda.synchronize()
         rotary_emb_q_time = 1000 * (time.time() - rotary_emb_q_start)
+        torch.cuda.nvtx.range_pop()
 
 
+        torch.cuda.nvtx.range_push("K")
         # k (S, H)
         base_start_K = time.time()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.k_weight_,
@@ -664,13 +678,18 @@ class LoraUnorderedBatchInfer:
             if self.use_sync:
                 torch.cuda.synchronize()
             lora_time_K = 1000 * (time.time() - lora_start_K)
+        torch.cuda.nvtx.range_pop()
+        
 
+        torch.cuda.nvtx.range_push("Rotary emb K")
         rotary_emb_k_start = time.time()
         rotary_emb_fwd(cache_k, infer_state.position_cos, infer_state.position_sin)
         if self.use_sync:
             torch.cuda.synchronize()
         rotary_emb_k_time = 1000 * (time.time() - rotary_emb_k_start)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("V")
         # v (S, H)
         base_start_V = time.time()
         torch.mm(input_embs.view(-1, base_layer_infer.embed_dim_), base_layer_weight.v_weight_,
@@ -715,6 +734,7 @@ class LoraUnorderedBatchInfer:
                 torch.cuda.synchronize()
             lora_time_V = 1000 * (time.time() - lora_start_V)
             
+        torch.cuda.nvtx.range_pop()
         # printstart = time.time()
         # print(f"\t\tBase Q : {base_time_Q:.8f} ms | LoRA Q : {lora_time_Q:.8f} ms")
         # print(f"\t\tBase K : {base_time_K:.8f} ms | LoRA K : {lora_time_K:.8f} ms")
