@@ -162,9 +162,9 @@ class ReqQueue:
         
         if not all_lora_same:
             using_ranks_64_loras = random.choices(rank_64_loras, k=0)
-            using_ranks_32_loras = random.choices(rank_32_loras, k=batch_size)
+            using_ranks_32_loras = random.choices(rank_32_loras, k=0)
             using_ranks_16_loras = random.choices(rank_16_loras, k=0)
-            using_ranks_8_loras = random.choices(rank_8_loras, k=0)
+            using_ranks_8_loras = random.choices(rank_8_loras, k=batch_size)
             using_lora_adapters = using_ranks_64_loras + using_ranks_32_loras + using_ranks_16_loras + using_ranks_8_loras
         else:
             using_ranks_64_loras = random.choices(rank_64_loras, k=0)
