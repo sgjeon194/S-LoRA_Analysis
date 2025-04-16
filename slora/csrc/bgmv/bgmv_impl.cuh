@@ -259,7 +259,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         dim3 nthrs(tx, ty, tz);                       // 항샹 셋을 곱하면 128
 
         // printf("expand block dim : %lu %lu %lu - thread dim : %lu %lu %lu\n", nblks.x, nblks.y, nblks.z, tx, ty, tz);
-        bgmv_multi_lora_rank_expand_kernel<feat_in, feat_out><<<nblks, nthrs>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, lora_scales);
+        bgmv_multi_lora_rank_expand_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, lora_scales);
         // printf("====================================\n");
     }
     else
