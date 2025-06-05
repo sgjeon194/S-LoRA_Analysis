@@ -216,6 +216,8 @@ class RouterManager:
             await self._decode_batch(self.running_batch)
         torch.cuda.nvtx.range_pop()
         
+        
+        print(f"Batch size : {batch_size}")
         print(f"Decode end : {1000 * (time.time() - decode_start)}")
         print(f"Batch finished : {1000 * (time.time() - start)} ms")
         #moveLogFile("twostream.txt")

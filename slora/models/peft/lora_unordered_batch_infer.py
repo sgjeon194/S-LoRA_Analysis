@@ -175,12 +175,15 @@ class LoraUnorderedBatchInfer:
                                           input_ids, b_loc, b_start_loc, b_seq_len, False)
         # print(f"\n\t<<Decode>>")
         # print(f"\t\tbatch_size {batch_size}")
+
         decode_start_time = time.time()
+
         predict_logics = self._token_forward(input_ids, infer_state, no_lora_compute, no_lora_copy)
+        
         if self.use_sync:
             torch.cuda.synchronize()
         self.timeDict["total_time"] = 1000 * (time.time() - decode_start_time)
-        print(f"\t<Decode end> --- time : {1000 * (time.time() - decode_start_time):0.8} ms -------------")
+        #print(f"\t<Decode end> --- time : {1000 * (time.time() - decode_start_time):0.8} ms -------------")
         return predict_logics
 
 
@@ -204,11 +207,17 @@ class LoraUnorderedBatchInfer:
         input_embs = self.base_model.pre_infer.token_forward(
                 cuda_input_ids, infer_state, self.base_model.pre_post_weight)
         # print(f"\t\tInput embs : {input_embs.size()}")
+        step_start = torch.cuda.Event(enable_timing=True)
+        step_end = torch.cuda.Event(enable_timing=True)
         self.timeDict["layers"] = []
+        step_start.record()
         for i in range(self.base_model.layers_num):
             input_embs = self._lora_token_forward(i, input_embs, infer_state, no_lora_compute, no_lora_copy)
         predict_logics = self.base_model.post_infer.token_forward(
                 input_embs, infer_state, self.base_model.pre_post_weight, return_logics=True)
+        step_end.record()
+        torch.cuda.synchronize()
+        print(f"\t<Decode end> --- time : {step_start.elapsed_time(step_end)} ms -------------")
         return predict_logics
 
 
