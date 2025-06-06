@@ -32,8 +32,10 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
                                                    const int64_t *__restrict__ lora_ranks,
                                                    const int64_t *__restrict__ loc_indicies,
                                                    const int64_t *__restrict__ indicies,
-                                                   int64_t qkvo)
+                                                   int64_t qkvo,
+                                                   int64_t *__restrict__ data)
 {
+    unsigned long long start, end;
     auto block = cg::this_thread_block();
     size_t j = blockIdx.x;
     size_t batch_idx = blockIdx.y;
@@ -75,6 +77,8 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
     // pipeline load W/X and compute WX;
     pipe.producer_acquire();
     // not sure if this idx*feat_in is expensive when feat_in is large
+
+    start = clock64();
     cuda::memcpy_async(
         W_shared + (threadIdx.y * tx + threadIdx.x) * vec_size,
         W + (idx * feat_in) + (threadIdx.y * tx + threadIdx.x) * vec_size,
@@ -84,6 +88,11 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
         X + (batch_idx * feat_in) + (threadIdx.y * tx + threadIdx.x) * vec_size,
         cuda::aligned_size_t<16>(16), pipe);
     pipe.producer_commit();
+
+    __syncthreads();
+    end = clock64();
+    data[out_idx] = (int64_t)(end - start);
+    
     size_t copy_idx, compute_idx;
     float y = 0.f;
     vec_t<T, vec_size> x_vec, w_vec;
@@ -282,6 +291,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                  int64_t qkvo,
                  int64_t batch_size,
                  const T *__restrict__ lora_scales,
+                 int64_t *__restrict__ data,
                  uintptr_t stream)
 {
 
@@ -296,7 +306,9 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         dim3 nthrs(tx, ty, tz);                       // 항샹 셋을 곱하면 128
 
         // printf("expand block dim : %lu %lu %lu - thread dim : %lu %lu %lu\n", nblks.x, nblks.y, nblks.z, tx, ty, tz);
+        // nvtxRangePushA("expand");
         bgmv_multi_lora_rank_expand_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, lora_scales);
+        // nvtxRangePop();
         // printf("====================================\n");
     }
     else
@@ -306,7 +318,33 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         // printf("shrink - block dim : (%lu %lu %lu) - thread dim (32, 4, 1)\n", nblks.x, nblks.y, nblks.z);
         // printf("%ld\n", stream);
         dim3 nthrs(32, 4);
-        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
+        // int total_threads = feat_out * batch_size * 32 * 4;
+
+        // unsigned long long *data = new unsigned long long[total_threads];
+        // unsigned long long *data_device;
+        // for (int i = 0; i < total_threads; i++)
+        // {
+        //     data[i] = ULLONG_MAX;
+        // }
+        // cudaMalloc(&data_device, sizeof(unsigned long long) * total_threads);
+        // cudaMemcpy(data_device, data, sizeof(unsigned long long) * total_threads, cudaMemcpyHostToDevice);
+
+        // bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
+        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, data);
+        // cudaDeviceSynchronize();
+        // cudaMemcpy(data, data_device, sizeof(unsigned long long) * total_threads, cudaMemcpyDeviceToHost);
+        // cudaFree(data_device);
+
+        // std::unordered_map<int, int> freq;
+
+        // for(int i = 0; i < total_threads; i++)
+        // {
+        //     freq[sm_host[i]]++;
+        // }
+
+        // std::vector<std::pair<int, int>> freq_vec(freq.begin(), freq.end());
+
+        // write_data(batch_size, total_threads, data_host);
     }
 }
 
@@ -317,7 +355,8 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         const int64_t *__restrict__ lora_ranks,                              \
         const int64_t *__restrict__ loc_indicies,                            \
         const int64_t *__restrict__ indicies, int64_t qkvo,                  \
-        int64_t batch_size, const T *__restrict__ lora_scales, uint64_t stream);
+        int64_t batch_size, const T *__restrict__ lora_scales,               \
+        int64_t *__restrict__ data, uint64_t stream);
 
 #define INST_BGMV_TWOSIDE(T, narrow, wide) \
     INST_BGMV(narrow, wide, T)             \

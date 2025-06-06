@@ -8,6 +8,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                  const int64_t *__restrict__ lora_ranks, const int64_t *__restrict__ loc_indicies,
                  const int64_t *__restrict__ indicies, int64_t qkvo, int64_t batch_size,
                  const T *__restrict__ lora_scales,
+                 int64_t *__restrict__ data,
                  uintptr_t stream);
 
 // clang-format off

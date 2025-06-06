@@ -57,6 +57,7 @@ namespace
                                    uint16_t in_features, uint16_t out_features,
                                    int64_t batch_size,
                                    const T *lora_scales,
+                                   int64_t *data,
                                    uintptr_t stream)
     {
         switch (pack_u16(in_features, out_features))
@@ -64,7 +65,7 @@ namespace
 #define CASE_ONESIDE(_T, feat_in, feat_out)                                                         \
     case pack_u16(feat_in, feat_out):                                                               \
         bgmv_kernel<feat_in, feat_out>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, \
-                                       qkvo, batch_size, lora_scales, stream);                      \
+                                       qkvo, batch_size, lora_scales, data, stream);                      \
         break;
 #define CASE(_T, narrow, wide)    \
     CASE_ONESIDE(T, narrow, wide) \
@@ -88,7 +89,7 @@ namespace
     // bgmv Batch gather matrix vector multiplication
     void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w, torch::Tensor start_indicies,
                        torch::Tensor lora_ranks, torch::Tensor loc_indicies, torch::Tensor indicies,
-                       int64_t qkvo, torch::Tensor lora_scales, uintptr_t stream = 0)
+                       int64_t qkvo, torch::Tensor lora_scales, torch::Tensor data, uintptr_t stream = 0)
     {
         CHECK_INPUT(y);
         CHECK_INPUT(x);
@@ -135,7 +136,8 @@ namespace
                                         lora_ranks.data_ptr<int64_t>(),
                                         loc_indicies.data_ptr<int64_t>(),
                                         indicies.data_ptr<int64_t>(), qkvo, h_in, h_out, B,
-                                        static_cast<nv_half *>(lora_scales.data_ptr()), stream);
+                                        static_cast<nv_half *>(lora_scales.data_ptr()), 
+                                        data.data_ptr<int64_t>(), stream);
                 break;
             case at::ScalarType::BFloat16:
                 ok = launch_bgmv_kernel(static_cast<nv_bfloat16 *>(y.data_ptr()),
@@ -145,7 +147,8 @@ namespace
                                         lora_ranks.data_ptr<int64_t>(),
                                         loc_indicies.data_ptr<int64_t>(),
                                         indicies.data_ptr<int64_t>(), qkvo, h_in, h_out, B,
-                                        static_cast<nv_bfloat16 *>(lora_scales.data_ptr()), stream);
+                                        static_cast<nv_bfloat16 *>(lora_scales.data_ptr()), 
+                                        data.data_ptr<int64_t>(), stream);
                 break;
             default:
                 break;
@@ -166,6 +169,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("dispatch_bgmv", &dispatch_bgmv, "dispatch_bgmv",
           pybind11::arg("y"), pybind11::arg("x"), pybind11::arg("w"), pybind11::arg("start_indicies"),
           pybind11::arg("lora_ranks"), pybind11::arg("loc_indicies"), pybind11::arg("indicies"),
-          pybind11::arg("qkvo"), pybind11::arg("lora_scales"), pybind11::arg("stream") = 0);
+          pybind11::arg("qkvo"), pybind11::arg("lora_scales"), pybind11::arg("data"), pybind11::arg("stream") = 0);
+    
     m.def("stream_pass_test", &stream_pass_test, "stream_pass_test", pybind11::arg("stream") = 0);
 }
