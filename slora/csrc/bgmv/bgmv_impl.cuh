@@ -7,9 +7,23 @@
 #include <cuda/pipeline>
 #include <iostream>
 #include <stdio.h>
+#include <nvtx3/nvToolsExt.h>
 #include "vec_dtypes.cuh"
 
+#include <vector>
+#include <unordered_map>
+#include <fstream>
+#include <algorithm>
+#include <climits>
+
 namespace cg = cooperative_groups;
+
+__device__ __inline__ int print_kernel() {
+    unsigned int smid;
+    asm("mov.u32 %0, %smid;" : "=r"(smid));
+
+    return smid;
+}
 
 template <int feat_in, int feat_out, typename T>
 __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
@@ -41,6 +55,12 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
     //     printf("lora idx : %lu (must be smaller than lora_rank size)\n", lora_idx);
     //     printf("lora rank : %lu (must be bigger than 63)\n", lora_rank);
     // }
+    unsigned int blkIdx = blockIdx.y * gridDim.x + blockIdx.x;
+    unsigned int thrIdx = threadIdx.y * blockDim.x + threadIdx.x;
+    unsigned int out_idx = blkIdx * blockDim.x * blockDim.y + thrIdx;
+
+    // used_sms[out_idx] = print_kernel();
+
     if (j >= lora_rank)
     {
         return;
@@ -233,6 +253,23 @@ __global__ void bgmv_multi_lora_rank_expand_kernel(T *__restrict__ Y, const T *_
     {
         Y[batch_idx * feat_out + tile_idx * (tz * ty) + threadIdx.z * ty + threadIdx.y] += sum;
     }
+}
+
+
+void write_data(int batch_size, int data_length, unsigned long long *data)
+{
+    std::string filename = "shrink_batch_" + std::to_string(batch_size) + ".txt";
+    std::ofstream outfile(filename);
+    if (!outfile.is_open()) {
+        std::cerr << "파일 열기 실패: " << filename << std::endl;
+        return;
+    }
+
+    for(int i = 0; i < data_length; i++)
+    {
+        outfile << data[i] << "\n";
+    }
+    outfile << "-------------------------------------------" << "\n";
 }
 
 template <int feat_in, int feat_out, typename T>
