@@ -36,6 +36,14 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
                                                    int64_t *__restrict__ data)
 {
     unsigned long long start, end;
+
+    unsigned int blkIdx = blockIdx.y * gridDim.x + blockIdx.x;
+    unsigned int thrIdx = threadIdx.y * blockDim.x + threadIdx.x;
+    unsigned int out_idx = blkIdx * blockDim.x * blockDim.y + thrIdx;
+    start = clock64();
+    end = clock64();
+    data[out_idx] = (int64_t)(end - start);
+
     auto block = cg::this_thread_block();
     size_t j = blockIdx.x;
     size_t batch_idx = blockIdx.y;
@@ -57,9 +65,7 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
     //     printf("lora idx : %lu (must be smaller than lora_rank size)\n", lora_idx);
     //     printf("lora rank : %lu (must be bigger than 63)\n", lora_rank);
     // }
-    unsigned int blkIdx = blockIdx.y * gridDim.x + blockIdx.x;
-    unsigned int thrIdx = threadIdx.y * blockDim.x + threadIdx.x;
-    unsigned int out_idx = blkIdx * blockDim.x * blockDim.y + thrIdx;
+
 
     // used_sms[out_idx] = print_kernel();
 
@@ -73,12 +79,12 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
     size_t W_shared_offset[num_pipeline_stages] = {0U, 1U * tile_size};
     size_t X_shared_offset[num_pipeline_stages] = {0U, 1U * tile_size};
     auto pipe = cuda::make_pipeline();
-
     // pipeline load W/X and compute WX;
     pipe.producer_acquire();
+    // __syncthreads();
+    
     // not sure if this idx*feat_in is expensive when feat_in is large
 
-    start = clock64();
     cuda::memcpy_async(
         W_shared + (threadIdx.y * tx + threadIdx.x) * vec_size,
         W + (idx * feat_in) + (threadIdx.y * tx + threadIdx.x) * vec_size,
@@ -89,10 +95,7 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
         cuda::aligned_size_t<16>(16), pipe);
     pipe.producer_commit();
 
-    __syncthreads();
-    end = clock64();
-    data[out_idx] = (int64_t)(end - start);
-    
+
     size_t copy_idx, compute_idx;
     float y = 0.f;
     vec_t<T, vec_size> x_vec, w_vec;
@@ -107,24 +110,24 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
         if (tile_idx * tile_size + threadIdx.y * tx * vec_size < feat_in)
         {
             cuda::memcpy_async(W_shared + W_shared_offset[copy_idx] + (threadIdx.y * tx + threadIdx.x) * vec_size,
-                               W + (idx * feat_in) + tile_idx * tile_size + (threadIdx.y * tx + threadIdx.x) * vec_size,
-                               cuda::aligned_size_t<16>(16), pipe);
+            W + (idx * feat_in) + tile_idx * tile_size + (threadIdx.y * tx + threadIdx.x) * vec_size,
+            cuda::aligned_size_t<16>(16), pipe);
             cuda::memcpy_async(X_shared + X_shared_offset[copy_idx] + (threadIdx.y * tx + threadIdx.x) * vec_size,
-                               X + (batch_idx * feat_in) + tile_idx * tile_size + (threadIdx.y * tx + threadIdx.x) * vec_size,
-                               cuda::aligned_size_t<16>(16), pipe);
+            X + (batch_idx * feat_in) + tile_idx * tile_size + (threadIdx.y * tx + threadIdx.x) * vec_size,
+            cuda::aligned_size_t<16>(16), pipe);
         }
         pipe.producer_commit();
-
+        
         compute_idx = (tile_idx - 1) % num_pipeline_stages;
         // pipeline stage: compute WX
         pipe.consumer_wait();
         block.sync();
         x_vec.load(X_shared + X_shared_offset[compute_idx] +
-                   (threadIdx.y * tx + threadIdx.x) * vec_size);
+            (threadIdx.y * tx + threadIdx.x) * vec_size);
         w_vec.load(W_shared + W_shared_offset[compute_idx] +
-                   (threadIdx.y * tx + threadIdx.x) * vec_size);
+            (threadIdx.y * tx + threadIdx.x) * vec_size);
         float sum = 0.f;
-#pragma unroll
+        #pragma unroll
         for (size_t i = 0; i < vec_size; ++i)
         {
             sum += float(w_vec[i]) * float(x_vec[i]);

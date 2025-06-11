@@ -4,13 +4,11 @@ import time
 import numpy as np
 import ctypes
 
-correction_test = False
-
 device = torch.device("cuda")
 data_type = torch.float16
 # input_size = 1200 # prefill
 input_size = 1 # decode
-batch_size = 1
+batch_size = 64
 rank = 8
 
 use_multistream = True
@@ -51,19 +49,44 @@ a_scaling = torch.tensor([0.5000 for _ in range(batch_size)],   device=device, d
 
 cycles = torch.zeros(batch_size * rank * 128, device=device, dtype=torch.long)
 
+base_stream = torch.cuda.Stream()
 lora_stream = torch.cuda.Stream()
-lora_stream_id = lora_stream.cuda_stream if use_multistream else torch.cuda.default_stream().cuda_stream
+lora_stream_id = lora_stream.cuda_stream if use_multistream else base_stream.cuda_stream
 
-start = torch.cuda.Event(enable_timing=True)
-end   = torch.cuda.Event(enable_timing=True)
+shrink_result = torch.zeros(batch_size * input_size, rank, dtype=torch.float16, device=device)
 
 _ = torch.mm(X, W)
 
 one_layer_graph = torch.cuda.CUDAGraph()
-shrink_result = torch.zeros(batch_size * input_size, rank, dtype=torch.float16, device=device)
 
 if use_cudagraph:
     with torch.cuda.graph(one_layer_graph):
+        base_stream.wait_stream(torch.cuda.current_stream())
+        lora_stream.wait_stream(torch.cuda.current_stream())
+        
+        with torch.cuda.stream(base_stream):
+            torch.cuda.nvtx.range_push("Base")
+            base_result = torch.mm(X, W) # (inputsize, 4096) * (4096, 4096)
+            torch.cuda.nvtx.range_pop()
+
+        #torch.cuda.set_stream(lora_stream)
+        with torch.cuda.stream(lora_stream):
+            torch.cuda.nvtx.range_push("Shrink")
+            dispatch_bgmv(shrink_result, X, A_batched, a_start, a_len, a_loc, batch_req_bin, 0, a_scaling, cycles, lora_stream_id) # (inputsize, 4096) * (4096, max_rank)
+            torch.cuda.nvtx.range_pop()
+        
+        torch.cuda.current_stream().wait_stream(base_stream)
+        torch.cuda.current_stream().wait_stream(lora_stream)
+    
+    for i in range(5):
+        shrink_result.zero_()
+        torch.cuda.nvtx.range_push("Cudagraph")
+        one_layer_graph.replay()
+        torch.cuda.nvtx.range_pop()
+        
+else:
+    for i in range(5):
+        shrink_result.zero_()
         lora_stream.wait_stream(torch.cuda.current_stream())
         
         torch.cuda.nvtx.range_push("Base")
@@ -75,51 +98,12 @@ if use_cudagraph:
             torch.cuda.nvtx.range_push("Shrink")
             dispatch_bgmv(shrink_result, X, A_batched, a_start, a_len, a_loc, batch_req_bin, 0, a_scaling, cycles, lora_stream_id) # (inputsize, 4096) * (4096, max_rank)
             torch.cuda.nvtx.range_pop()
-        
+            
         torch.cuda.current_stream().wait_stream(lora_stream)
-        
-    
-    python_start = time.time()
-    for i in range(5):
-        shrink_result = torch.zeros(batch_size * input_size, rank, dtype=torch.float16, device=device)
-        expand_result = torch.zeros(batch_size * input_size, 4096, dtype=torch.float16, device=device)
-        torch.cuda.nvtx.range_push("Cudagraph")
-        one_layer_graph.replay()
-        torch.cuda.nvtx.range_pop()
-        
-    python_end = time.time()
-else:
-    python_start = time.time()
-    
-    for i in range(5):
-        shrink_result = torch.zeros(batch_size * input_size, rank, dtype=torch.float16, device=device)
-        expand_result = torch.zeros(batch_size * input_size, 4096, dtype=torch.float16, device=device)
-        lora_stream.wait_stream(torch.cuda.current_stream())
-        
-        torch.cuda.nvtx.range_push("Base")
-        base_result = torch.mm(X, W) # (inputsize, 4096) * (4096, 4096)
-        torch.cuda.nvtx.range_pop()
 
-        #torch.cuda.set_stream(lora_stream)
-        with torch.cuda.stream(lora_stream):
-            torch.cuda.nvtx.range_push("Shrink")
-            dispatch_bgmv(shrink_result, X, A_batched, a_start, a_len, a_loc, batch_req_bin, 0, a_scaling, lora_stream_id) # (inputsize, 4096) * (4096, max_rank)
-            torch.cuda.nvtx.range_pop()
-                    
-        torch.cuda.current_stream().wait_stream(lora_stream)
-        
-        python_end = time.time()
-    
-print(python_end - python_start)
+cycles_host = cycles.cpu().numpy()
+zero_count = np.sum(cycles_host == 0)
+avg = np.mean(cycles_host)
+print(f"Zeros : {zero_count}")
+print(f"Avg : {avg}")
 
-if correction_test:
-    shrink_result_test = torch.zeros_like(shrink_result, dtype=data_type, device='cuda')
-    for i in range(batch_size):
-        shrink_result_test[input_size * i:input_size * (i + 1)] = torch.mm(X[input_size * i:input_size * (i + 1)], A_list[i])
-        
-    for i in range(4096):
-        issame = torch.allclose(shrink_result[i], shrink_result_test[i], 1e-3)
-        if not issame:
-            print(f"{i} {shrink_result[i]} {shrink_result_test[i]}")
-
-torch.cuda.synchronize()
