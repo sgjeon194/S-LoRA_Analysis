@@ -32,17 +32,16 @@ __global__ void bgmv_multi_lora_rank_shrink_kernel(T *__restrict__ Y, const T *_
                                                    const int64_t *__restrict__ lora_ranks,
                                                    const int64_t *__restrict__ loc_indicies,
                                                    const int64_t *__restrict__ indicies,
-                                                   int64_t qkvo,
-                                                   int64_t *__restrict__ data)
+                                                   int64_t qkvo)
 {
-    unsigned long long start, end;
+    // unsigned long long start, end;
 
-    unsigned int blkIdx = blockIdx.y * gridDim.x + blockIdx.x;
-    unsigned int thrIdx = threadIdx.y * blockDim.x + threadIdx.x;
-    unsigned int out_idx = blkIdx * blockDim.x * blockDim.y + thrIdx;
-    start = clock64();
-    end = clock64();
-    data[out_idx] = (int64_t)(end - start);
+    // unsigned int blkIdx = blockIdx.y * gridDim.x + blockIdx.x;
+    // unsigned int thrIdx = threadIdx.y * blockDim.x + threadIdx.x;
+    // unsigned int out_idx = blkIdx * blockDim.x * blockDim.y + thrIdx;
+    // start = clock64();
+    // end = clock64();
+    // data[out_idx] = (int64_t)(end - start);
 
     auto block = cg::this_thread_block();
     size_t j = blockIdx.x;
@@ -268,6 +267,56 @@ __global__ void bgmv_multi_lora_rank_expand_kernel(T *__restrict__ Y, const T *_
 }
 
 
+__global__ void computeBound_kernel(float *__restrict__ C) {
+    unsigned long long start, end;
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int a = 0.5f;
+    int b = -0.5;
+
+    if (idx < 65536) {
+        // __syncthreads();
+        // start = clock64();
+        float sum = (float)idx / 65536.0f;
+        for (int i = 0; i < 100; ++i)
+        {
+            sum += sum * b;
+            sum -= 1.0f;
+            sum -= sum / a;
+            sum += 1.0f;
+        }
+        // __syncthreads();
+        // end = clock64();
+        // cycles[idx] = (int64_t)(end - start);    
+        C[idx] = sum;
+    }
+}
+
+__global__ void memoryBound_kernel(float* dist, float* source, int N) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N)
+        for(int j = 0; j < 64; j++)
+            dist[i + N * j] = source[i];
+}
+
+void computeBound(float* result, uintptr_t stream)
+{
+    cudaStream_t cuda_stream = reinterpret_cast<cudaStream_t>(stream);
+    dim3 grid(64);
+    dim3 block(1024);
+    computeBound_kernel<<<grid, block, 0, cuda_stream>>>(result);
+}
+
+void memoryBound(float *dist, float *source, int K, uintptr_t stream)
+{
+    cudaStream_t cuda_stream = reinterpret_cast<cudaStream_t>(stream);
+    dim3 grid(64);
+    dim3 block(1024);
+    memoryBound_kernel<<<grid, block, 0, cuda_stream>>>(dist, source, K);
+}
+
+
+
 void write_data(int batch_size, int data_length, unsigned long long *data)
 {
     std::string filename = "shrink_batch_" + std::to_string(batch_size) + ".txt";
@@ -294,7 +343,6 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                  int64_t qkvo,
                  int64_t batch_size,
                  const T *__restrict__ lora_scales,
-                 int64_t *__restrict__ data,
                  uintptr_t stream)
 {
 
@@ -333,7 +381,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         // cudaMemcpy(data_device, data, sizeof(unsigned long long) * total_threads, cudaMemcpyHostToDevice);
 
         // bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
-        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo, data);
+        bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out><<<nblks, nthrs, 0, cuda_stream>>>(Y, X, W, start_indicies, lora_ranks, loc_indicies, indicies, qkvo);
         // cudaDeviceSynchronize();
         // cudaMemcpy(data, data_device, sizeof(unsigned long long) * total_threads, cudaMemcpyDeviceToHost);
         // cudaFree(data_device);
@@ -359,7 +407,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
         const int64_t *__restrict__ loc_indicies,                            \
         const int64_t *__restrict__ indicies, int64_t qkvo,                  \
         int64_t batch_size, const T *__restrict__ lora_scales,               \
-        int64_t *__restrict__ data, uint64_t stream);
+        uint64_t stream);
 
 #define INST_BGMV_TWOSIDE(T, narrow, wide) \
     INST_BGMV(narrow, wide, T)             \

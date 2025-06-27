@@ -11,8 +11,8 @@ input_size = 1 # decode
 batch_size = 1
 rank = 8
 
-use_multistream = True
-use_cudagraph = True
+use_multistream = False
+use_cudagraph = False
 
 print(f"batch_size {batch_size}")
 print(f"use_multistream {use_multistream}")
