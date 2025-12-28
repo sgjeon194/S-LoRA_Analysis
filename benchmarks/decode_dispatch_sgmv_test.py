@@ -160,28 +160,28 @@ def bgmv_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_i
         key_buffer.index_copy_(0, loc, a)
         val_buffer.index_copy_(0, loc, b)
 
-    for _ in range(loop):
-        shrink_result.zero_()
-        expand_result.zero_()
-        torch.cuda.nvtx.range_push("1 loop - bgmv slora")
-        dispatch_bgmv(shrink_result, batched_input, key_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling)
-        dispatch_bgmv(expand_result, shrink_result, val_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling)
-        torch.cuda.nvtx.range_pop()
-
-
-    # bgmv_cudagraph = torch.cuda.CUDAGraph()
-    # torch.cuda.synchronize()
-    # with torch.cuda.graph(bgmv_cudagraph):
+    # for _ in range(loop):
+    #     shrink_result.zero_()
+    #     expand_result.zero_()
+    #     torch.cuda.nvtx.range_push("1 loop - bgmv slora")
     #     dispatch_bgmv(shrink_result, batched_input, key_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling)
     #     dispatch_bgmv(expand_result, shrink_result, val_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling)
-
-
-    # for _ in range(loop):
-    #     # shrink_result.zero_()
-    #     # expand_result.zero_()
-    #     torch.cuda.nvtx.range_push("1 loop - bgmv slora")
-    #     bgmv_cudagraph.replay()
     #     torch.cuda.nvtx.range_pop()
+
+
+    bgmv_cudagraph = torch.cuda.CUDAGraph()
+    torch.cuda.synchronize()
+    with torch.cuda.graph(bgmv_cudagraph):
+        dispatch_bgmv(shrink_result, batched_input, key_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling, torch.cuda.current_stream().cuda_stream)
+        dispatch_bgmv(expand_result, shrink_result, val_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling, torch.cuda.current_stream().cuda_stream)
+
+
+    for _ in range(loop):
+        # shrink_result.zero_()
+        # expand_result.zero_()
+        torch.cuda.nvtx.range_push("1 loop - bgmv slora")
+        bgmv_cudagraph.replay()
+        torch.cuda.nvtx.range_pop()
         
 
     return expand_result
