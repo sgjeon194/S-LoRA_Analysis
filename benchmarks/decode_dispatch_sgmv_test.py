@@ -6,6 +6,14 @@ import random
 import numpy as np
 import argparse
 
+import math
+
+from dataclasses import dataclass
+from typing import Tuple
+from punica_vllm.punica import PunicaWrapper
+from punica_vllm.mapping import LoRAMapping
+
+
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = torch.device("cuda")
 data_type = torch.float16
@@ -91,7 +99,59 @@ def bmm_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_in
     
     return expand_result
 
-def bgmv_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_indices:list):
+def sgmv_vllm_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_indices:list):
+    assert len(A_list) == len(B_list)
+    unique_lora_number = len(A_list)
+    batch_size = len(using_lora_indices)
+    assert batch_size != 0
+    assert A_list[0].shape[0] == B_list[0].shape[1] 
+    dmodel = A_list[0].shape[0]
+    assert A_list[0].shape[1] == B_list[0].shape[0] 
+    rank = int(A_list[0].shape[1] / 4)
+      
+    batched_A = torch.zeros(unique_lora_number, 1, rank, dmodel, device='cuda', dtype=data_type).contiguous()
+    batched_B = torch.zeros(unique_lora_number, 1, dmodel, rank, device='cuda', dtype=data_type).contiguous()
+    
+    result = torch.zeros(batched_input.shape, dtype=data_type, device='cuda')
+    
+    arr = np.arange(1, max(using_lora_indices) + 2, 1)
+    #np.random.shuffle(arr)
+    arr = arr.tolist() + [None] * (batch_size - len(arr))
+    
+    mapping = LoRAMapping(
+        index_mapping = [i + 1 for i in using_lora_indices],#range(1, batch_size + 1, 1),
+        prompt_mapping = [i + 1 for i in using_lora_indices]
+    )
+    mapping.is_prefill = False
+    
+    punica_wrapper = PunicaWrapper(batched_input.shape[0] * batched_input.shape[1], max_batches=batched_input.shape[0], device='cuda')
+    punica_wrapper.update_metadata(mapping, arr, batch_size + 1, 128256, 256)
+    
+    bgmv_cudagraph = torch.cuda.CUDAGraph()
+    torch.cuda.synchronize()
+    
+    # # First run for triton jit cache
+    punica_wrapper.add_lora(result, batched_input, batched_A, batched_B, 1.0)
+    
+    with torch.cuda.graph(bgmv_cudagraph):
+        torch.cuda.nvtx.range_push("BGMV lora")
+        punica_wrapper.add_lora(result, batched_input, batched_A, batched_B, 1.0)
+        torch.cuda.nvtx.range_pop()
+
+    new_A_list = [A[:, qkvo * rank : (qkvo + 1) * rank] for A in A_list]
+    new_B_list = [B[qkvo * rank : (qkvo + 1) * rank, :] for B in B_list]
+
+    batched_A.copy_(torch.stack(new_A_list, dim=0).unsqueeze(1).transpose(2,3))
+    batched_B.copy_(torch.stack(new_B_list, dim=0).unsqueeze(1).transpose(2,3))
+    for _ in range(loop):
+        result.copy_(torch.zeros(batched_input.shape, dtype=data_type, device='cuda'))
+        torch.cuda.nvtx.range_push("1 loop - bgmv")
+        bgmv_cudagraph.replay()
+        torch.cuda.nvtx.range_pop()
+    
+    return result
+
+def sgmv_slora_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_indices:list):
     assert len(A_list) == len(B_list)
     batch_size = len(using_lora_indices)
     assert batch_size != 0
@@ -177,8 +237,8 @@ def bgmv_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_i
 
 
     for _ in range(loop):
-        # shrink_result.zero_()
-        # expand_result.zero_()
+        shrink_result.zero_()
+        expand_result.zero_()
         torch.cuda.nvtx.range_push("1 loop - bgmv slora")
         bgmv_cudagraph.replay()
         torch.cuda.nvtx.range_pop()
@@ -217,7 +277,7 @@ def main():
     distribution = args.distribution
     
     dmodel = 4096
-    rank = 16
+    rank = 8
     
     if distribution == 1:
         print("Distinct")
@@ -263,11 +323,13 @@ def main():
     
     naive_result = naive_lora(X, A_list, B_list, using_lora_ids)
     bmm_result = bmm_lora(X, A_list, B_list, using_lora_ids)
-    bgmv_result = bgmv_lora(X, A_list, B_list, using_lora_ids)
+    sgmv_vllm_result = sgmv_vllm_lora(X, A_list, B_list, using_lora_ids)
+    sgmv_slora_result = sgmv_slora_lora(X, A_list, B_list, using_lora_ids)
         
     print(naive_result)
     print(bmm_result)
-    print(bgmv_result)
+    print(sgmv_vllm_result)
+    print(sgmv_slora_result)
 
 
 
