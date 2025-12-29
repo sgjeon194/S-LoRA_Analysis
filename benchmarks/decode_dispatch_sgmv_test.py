@@ -42,7 +42,7 @@ def naive_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_
     torch.cuda.synchronize()
     
     with torch.cuda.graph(naive_cudagraph):
-        torch.cuda.nvtx.range_push("Naive lora")
+        torch.cuda.nvtx.range_push("Naive lora Capture")
         for i in range(batch_size):
             torch.matmul(batched_input[i:i+1], static_A_list[i], out=shrink_result[i:i+1])
             torch.matmul(shrink_result[i:i+1], static_B_list[i], out=expand_result[i:i+1])
@@ -81,13 +81,13 @@ def bmm_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_lora_in
     torch.cuda.synchronize()
     with torch.cuda.graph(bmm_cudagraph):
         
-        torch.cuda.nvtx.range_push("Gather")
+        torch.cuda.nvtx.range_push("Gather Capture")
         for i in range(batch_size):
             batched_A[i].copy_(A_list[using_lora_indices[i]][:, rank * qkvo:rank * (qkvo+1)])
             batched_B[i].copy_(B_list[using_lora_indices[i]][rank * qkvo:rank * (qkvo+1), :])
         torch.cuda.nvtx.range_pop()
                         
-        torch.cuda.nvtx.range_push("Bmm lora")
+        torch.cuda.nvtx.range_push("Bmm lora Capture")
         torch.bmm(batched_input, batched_A, out=shrink_result)
         torch.bmm(shrink_result, batched_B, out=expand_result)
         torch.cuda.nvtx.range_pop()
@@ -134,9 +134,9 @@ def sgmv_vllm_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_l
     punica_wrapper.add_lora(result, batched_input, batched_A, batched_B, 1.0)
     
     with torch.cuda.graph(bgmv_cudagraph):
-        torch.cuda.nvtx.range_push("BGMV lora")
+        #torch.cuda.nvtx.range_push("vllm sgmv lora Capture")
         punica_wrapper.add_lora(result, batched_input, batched_A, batched_B, 1.0)
-        torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_pop()
 
     new_A_list = [A[:, qkvo * rank : (qkvo + 1) * rank] for A in A_list]
     new_B_list = [B[qkvo * rank : (qkvo + 1) * rank, :] for B in B_list]
@@ -145,7 +145,7 @@ def sgmv_vllm_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_l
     batched_B.copy_(torch.stack(new_B_list, dim=0).unsqueeze(1).transpose(2,3))
     for _ in range(loop):
         result.copy_(torch.zeros(batched_input.shape, dtype=data_type, device='cuda'))
-        torch.cuda.nvtx.range_push("1 loop - bgmv")
+        torch.cuda.nvtx.range_push("1 loop - vllm sgmv")
         bgmv_cudagraph.replay()
         torch.cuda.nvtx.range_pop()
     
@@ -191,7 +191,7 @@ def sgmv_slora_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_
 
     # Lora data arrange
     key_buffer = torch.zeros(batch_size * 2048, 32, 128, device='cuda', dtype=data_type).contiguous()
-    val_buffer = torch.zeros(10000, 32, 128, device='cuda', dtype=data_type).contiguous()
+    val_buffer = torch.zeros(batch_size * 2048, 32, 128, device='cuda', dtype=data_type).contiguous()
 
     shrink_result = torch.zeros(batch_size, rank, device=device, dtype=data_type)
     expand_result = torch.zeros(batch_size, dmodel, device=device, dtype=data_type)
@@ -219,8 +219,11 @@ def sgmv_slora_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_
         b = new_B_list[i].contiguous()
         key_buffer.index_copy_(0, loc, a)
         val_buffer.index_copy_(0, loc, b)
+        torch.cuda.synchronize()
 
+    
     # for _ in range(loop):
+    #     torch.cuda.synchronize()
     #     shrink_result.zero_()
     #     expand_result.zero_()
     #     torch.cuda.nvtx.range_push("1 loop - bgmv slora")
@@ -232,8 +235,12 @@ def sgmv_slora_lora(batched_input:torch.Tensor, A_list:list, B_list:list, using_
     bgmv_cudagraph = torch.cuda.CUDAGraph()
     torch.cuda.synchronize()
     with torch.cuda.graph(bgmv_cudagraph):
+        torch.cuda.nvtx.range_push("shrink")
         dispatch_bgmv(shrink_result, batched_input, key_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling, torch.cuda.current_stream().cuda_stream)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("expand")
         dispatch_bgmv(expand_result, shrink_result, val_buffer, a_start, a_len, a_loc, req_bins, qkvo, a_scaling, torch.cuda.current_stream().cuda_stream)
+        torch.cuda.nvtx.range_pop()
 
 
     for _ in range(loop):
@@ -266,9 +273,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     # 인자 추가
-    parser.add_argument("--batch_size", type=int, default=64, help="batch size of decode")
+    parser.add_argument("--batch_size", type=int, default=128, help="batch size of decode")
     parser.add_argument("--lin", type=int, default=1, help="prompt length of each request")
-    parser.add_argument("--distribution", type=int, default=2, help="Enter the lora distribution type. (Distinct : 1, Uniform : 2, Identical : 3)")
+    parser.add_argument("--lora_rank", type=int, default=64, help="size of lora")
+    parser.add_argument("--distribution", type=int, default=1, help="Enter the lora distribution type. (Distinct : 1, Uniform : 2, Identical : 3)")
 
     args = parser.parse_args()
     
@@ -277,7 +285,7 @@ def main():
     distribution = args.distribution
     
     dmodel = 4096
-    rank = 8
+    rank = args.lora_rank
     
     if distribution == 1:
         print("Distinct")
@@ -322,17 +330,16 @@ def main():
     print(O_base.shape)
     
     naive_result = naive_lora(X, A_list, B_list, using_lora_ids)
-    bmm_result = bmm_lora(X, A_list, B_list, using_lora_ids)
-    sgmv_vllm_result = sgmv_vllm_lora(X, A_list, B_list, using_lora_ids)
-    sgmv_slora_result = sgmv_slora_lora(X, A_list, B_list, using_lora_ids)
-        
     print(naive_result)
+        
+    bmm_result = bmm_lora(X, A_list, B_list, using_lora_ids)
     print(bmm_result)
+        
+    sgmv_vllm_result = sgmv_vllm_lora(X, A_list, B_list, using_lora_ids)
     print(sgmv_vllm_result)
+        
+    sgmv_slora_result = sgmv_slora_lora(X, A_list, B_list, using_lora_ids)
     print(sgmv_slora_result)
-
-
-
 
 if __name__ == "__main__":
     main()
